@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: travel-advisor-nginx
+  namespace: ai-travel-advisor
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+
+        location / {
+            proxy_pass http://travel-advisor:8080;
+            proxy_http_version 1.1;
+            proxy_connect_timeout 10s;
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+            send_timeout 300s;
+            proxy_set_header Host travel-advisor;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Connection "";
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-advisor-nginx
+  namespace: ai-travel-advisor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-advisor-nginx
+  template:
+    metadata:
+      labels:
+        app: travel-advisor-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: docker.io/library/nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: travel-advisor-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: travel-advisor-nginx
+  namespace: ai-travel-advisor
+spec:
+  selector:
+    app: travel-advisor-nginx
+  ports:
+    - { name: http, port: 80, targetPort: 80 }

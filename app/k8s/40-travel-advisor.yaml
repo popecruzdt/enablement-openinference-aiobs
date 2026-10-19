@@ -1,0 +1,102 @@
+# The `travel-advisor-prompts` ConfigMap is created from app/prompts/ by deployTravelAdvisor.
+# Keep replicas at 1: the embedding-model override flag is per process.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: travel-advisor-env
+  namespace: ai-travel-advisor
+data:
+  HOST: "0.0.0.0"
+  PORT: "8080"
+  OLLAMA_ENDPOINT: "http://ollama:11434"
+  AI_MODEL: "qwen2.5:0.5b-instruct-q4_K_M"
+  AI_EMBEDDING_MODEL: "nomic-embed-text"
+  AI_TEMPERATURE: "0.7"
+  WEAVIATE_ENDPOINT: "weaviate"
+  WEAVIATE_PORT: "8080"
+  CHUNK_SIZE: "500"
+  CHUNK_OVERLAP: "0"
+  RETRIEVAL_K: "10"
+  MIN_KB_OBJECTS: "450"
+  OPENLLMETRY_ENABLED: "true"
+  TRACELOOP_TRACE_CONTENT: "true"
+  OTEL_SERVICE_NAME: "ai-travel-advisor"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-advisor
+  namespace: ai-travel-advisor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-advisor
+  template:
+    metadata:
+      labels:
+        app: travel-advisor
+    spec:
+      initContainers:
+        - name: wait-for-backends
+          image: docker.io/curlimages/curl:8.10.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until curl -sf http://weaviate:8080/v1/.well-known/ready; do echo "waiting for weaviate"; sleep 5; done
+              until curl -sf http://ollama:11434/api/tags | grep -q 'qwen2.5:0.5b-instruct-q4_K_M' \
+                 && curl -sf http://ollama:11434/api/tags | grep -q 'nomic-embed-text'; do
+                echo "waiting for ollama models"; sleep 5
+              done
+      containers:
+        - name: travel-advisor
+          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: travel-advisor-env
+          startupProbe:
+            httpGet:
+              path: /api/v1/status
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+          volumeMounts:
+            - name: prompts
+              mountPath: /app/prompts
+      volumes:
+        - name: prompts
+          configMap:
+            name: travel-advisor-prompts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: travel-advisor
+  namespace: ai-travel-advisor
+spec:
+  selector:
+    app: travel-advisor
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }

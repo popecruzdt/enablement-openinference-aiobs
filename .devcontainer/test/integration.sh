@@ -11,15 +11,25 @@ printInfoSection "Running integration Tests for $RepositoryName"
 
 #assertRunningPod dynatrace oneagent
 
-assertRunningPod todoapp todoapp
+assertRunningPod ai-travel-advisor ollama
 
-assertRunningApp todoapp
+assertRunningPod ai-travel-advisor weaviate
 
-# TODO(starter): replace with your own steps' fail-first proof, or delete with step 2.
-# Step 2's check must FAIL before its solution and PASS after it — a check that cannot fail proves nothing.
-if checkTodoAppScaled; then
-  printError "checkTodoAppScaled passed before the step's solution ran — the check cannot fail"
+assertRunningPod ai-travel-advisor otel-collector
+
+assertRunningPod ai-travel-advisor travel-advisor
+
+assertRunningPod ai-travel-advisor travel-advisor-nginx
+
+assertRunningApp ai-travel-advisor
+
+LAB_WAIT=1 checkTravelAdvisorReady || exit 1
+
+# TODO(starter): replace with your own steps' fail-first proof.
+# Step 2's check must FAIL before its solution and PASS after it: a check that cannot fail proves nothing.
+if checkNginxScaled; then
+  printError "checkNginxScaled passed before the step's solution ran: the check cannot fail"
   exit 1
 fi
-kubectl scale deployment todoapp -n todoapp --replicas=2
-LAB_WAIT=1 checkTodoAppScaled || exit 1
+kubectl scale deployment travel-advisor-nginx -n ai-travel-advisor --replicas=2
+LAB_WAIT=1 checkNginxScaled || exit 1

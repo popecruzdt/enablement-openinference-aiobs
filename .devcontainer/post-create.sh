@@ -21,10 +21,9 @@ installK9s
 #deployCloudNative
 #deployApplicationMonitoring
 
-# TODO(starter): deploy what your training needs, then delete this TODO line.
-# The starter's steps check the cluster and the TODO app, so keep deployTodoApp
-# or change step 1's checks with it. Step 1 checks ONLY what this script builds.
-deployTodoApp
+# AI Travel Advisor stack: nginx, travel-advisor (FastAPI), ollama, weaviate, otel-collector.
+# Defined in .devcontainer/util/my_functions.sh, manifests in app/k8s/.
+deployTravelAdvisor
 
 # The Astroshop keeping changes of demo.live needs certmanagerdocker
 #certmanagerInstall

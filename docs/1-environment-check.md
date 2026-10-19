@@ -5,7 +5,7 @@
      check per thing post-create.sh deploys; remove the ones your training does not deploy. -->
 
 Your environment was built when you pressed **Start**: a Kubernetes cluster with a small demo
-application, the TODO app. Before changing anything, confirm both are up.
+application, the AI Travel Advisor (nginx, the Python app, Ollama, Weaviate and an OpenTelemetry Collector). Before changing anything, confirm both are up.
 
 ## Validation
 
@@ -22,13 +22,13 @@ explanation: "The cluster node is Ready."
 
 <!-- LAB_QUESTION
 type: shell-verification
-question: "Verify the TODO app is Running"
-buttonText: "Check TODO app"
-command: "checkTodoAppRunning"
+question: "Verify the AI Travel Advisor is Running"
+buttonText: "Check the app"
+command: "checkTravelAdvisorRunning"
 expect:
   operator: exit-zero
 hint: "The app deploys after the cluster. Wait a minute, then check again."
-explanation: "The TODO app pods are Running in the todoapp namespace."
+explanation: "All five components are Running in the ai-travel-advisor namespace."
 -->
 
 <!-- LAB_NO_SOLUTION: sanity check of what post-create.sh built — nothing to solve -->

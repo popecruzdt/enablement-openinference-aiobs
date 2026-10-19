@@ -1,0 +1,60 @@
+# Python 3.13+ Compatible Requirements
+# Web Framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.12.0
+pydantic-settings==2.7.0
+httpx==0.27.2
+
+# LLM & Embeddings (Ollama and LangChain)
+ollama==0.3.1
+langchain==0.3.6
+langchain-community==0.3.5
+langchain-ollama==0.2.1
+langchain-core==0.3.63
+langchain-text-splitters==0.3.8
+
+# Agentic workflow (LangGraph). langgraph-prebuilt>=0.5 requires langchain-core>=0.3.67,
+# which needs langsmith>=0.3.45 and conflicts with langchain/langchain-community above.
+# Pin prebuilt explicitly: langgraph 0.4.x allows any prebuilt>=0.2.0.
+langgraph==0.4.10
+langgraph-prebuilt==0.2.3
+langgraph-checkpoint>=2.0.26,<3
+
+# Vector Database (Weaviate)
+weaviate-client==4.20.4
+
+# HTML parsing for RAG
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Configuration & Environment
+python-dotenv==1.0.1
+prometheus-client==0.21.1
+
+# Observability & Logging
+opentelemetry-api==1.41.0
+opentelemetry-sdk==1.41.0
+opentelemetry-exporter-otlp==1.41.0
+opentelemetry-instrumentation==0.62b0
+opentelemetry-instrumentation-fastapi==0.62b0
+opentelemetry-instrumentation-requests==0.62b0
+opentelemetry-instrumentation-sqlalchemy==0.62b0
+opentelemetry-instrumentation-grpc==0.62b0
+python-json-logger==2.0.7
+traceloop-sdk==0.53.3
+# OpenInference instruments LangChain/LangGraph (Traceloop's LangChain instrumentor
+# is blocked in Traceloop.init to avoid duplicate span trees).
+openinference-instrumentation-langchain==0.1.78
+openinference-semantic-conventions>=0.1.41
+# wrapt is a transitive dep of opentelemetry-instrumentation-langchain (via traceloop-sdk).
+# wrapt 2.x removed the module= keyword from wrap_function_wrapper(), breaking the
+# LangChain instrumentor and causing ChatOllama.chat spans to disappear.
+# Pin to the last 1.x release to keep the API intact.
+wrapt==1.17.2
+
+# Feature Flags
+openfeature-sdk==0.8.4
+
+# Utilities
+colorama==0.4.6

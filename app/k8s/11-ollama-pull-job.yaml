@@ -1,0 +1,30 @@
+# Pulls the chat and embedding models into the Ollama PVC.
+# Re-run with: kubectl -n ai-travel-advisor delete job ollama-pull --ignore-not-found && kubectl apply -f 11-ollama-pull-job.yaml
+# To pull another model (e.g. for the embedding-drift scenario): kubectl -n ai-travel-advisor exec deploy/ollama -- ollama pull gemma2:2b
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull
+  namespace: ai-travel-advisor
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: docker.io/ollama/ollama:0.18.2
+          env:
+            - name: OLLAMA_HOST
+              value: "http://ollama:11434"
+            - name: HOME
+              value: /tmp
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              for model in qwen2.5:0.5b-instruct-q4_K_M nomic-embed-text; do
+                echo "Pulling $model"
+                ollama pull "$model"
+              done

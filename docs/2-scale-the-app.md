@@ -1,4 +1,4 @@
-# 2. Scale the App
+# 2. Scale the Web Tier
 
 <!-- TODO(starter): this page is the example step. Replace it with your first real task and copy
      it once per further step (3-<slug>.md, 4-<slug>.md, …), adding each to the nav in mkdocs.yaml.
@@ -7,43 +7,43 @@
 One replica of an application is one failure away from an outage. Kubernetes keeps as many
 copies of a pod running as the deployment asks for, so scaling out is a single command.
 
-Scale the TODO app to two replicas:
+Scale the nginx web tier of the AI Travel Advisor to two replicas. Only nginx is stateless: the Python app must stay at one replica because its embedding-model override is per process.
 
 ```bash
-kubectl scale deployment todoapp -n todoapp --replicas=2
+kubectl scale deployment travel-advisor-nginx -n ai-travel-advisor --replicas=2
 ```
 
 Then watch the second pod start:
 
 ```bash
-kubectl get pods -n todoapp
+kubectl get pods -n ai-travel-advisor -l app=travel-advisor-nginx
 ```
 
 ## Validation
 
 <!-- A shell check calls a function by name: the platform loads the framework and
-     .devcontainer/util/my_functions.sh first. checkTodoAppScaled is defined there.
+     .devcontainer/util/my_functions.sh first. checkNginxScaled is defined there.
      Run it once BEFORE the step's action and confirm it fails — a check that cannot fail
      proves nothing. -->
 <!-- LAB_QUESTION
 type: shell-verification
-question: "Verify the TODO app runs two replicas"
+question: "Verify nginx runs two replicas"
 buttonText: "Check replicas"
-command: "checkTodoAppScaled"
+command: "checkNginxScaled"
 expect:
   operator: exit-zero
 hint: "Run the kubectl scale command above, wait until both pods show Running, then check again."
-explanation: "Two todoapp pods are Running: one can fail and the app stays up."
+explanation: "Two nginx pods are Running: one can fail and the web tier stays up."
 -->
 
 <!-- A multiple-choice question checks understanding. `correct` is the 0-based index of the right
      option: double-check it, a wrong index strands the learner. -->
 <!-- LAB_QUESTION
 type: multiple-choice
-question: "What does `kubectl scale deployment todoapp --replicas=2` change?"
+question: "What does `kubectl scale deployment travel-advisor-nginx --replicas=2` change?"
 options:
-  - "The number of todoapp pods the deployment keeps running"
-  - "The CPU and memory each todoapp pod may use"
+  - "The number of nginx pods the deployment keeps running"
+  - "The CPU and memory each nginx pod may use"
   - "The number of nodes in the cluster"
 correct: 0
 explanation: "A deployment's replica count is how many identical pods Kubernetes keeps running. Resources and nodes are set elsewhere."
@@ -58,11 +58,11 @@ explanation: "A deployment's replica count is how many identical pods Kubernetes
      `verify` must exit 0 afterwards and is the same check the learner clicks. -->
 <!-- LAB_SOLUTION
 reveal: |
-  Scale the deployment to two replicas: `kubectl scale deployment todoapp -n todoapp --replicas=2`.
+  Scale the deployment to two replicas: `kubectl scale deployment travel-advisor-nginx -n ai-travel-advisor --replicas=2`.
 commands:
-  - kubectl scale deployment todoapp -n todoapp --replicas=2
+  - kubectl scale deployment travel-advisor-nginx -n ai-travel-advisor --replicas=2
 verify:
-  - LAB_WAIT=1 checkTodoAppScaled
+  - LAB_WAIT=1 checkNginxScaled
 -->
 
 <!-- The scored assessment goes on the LAST hands-on step, once. Its id must equal the file name

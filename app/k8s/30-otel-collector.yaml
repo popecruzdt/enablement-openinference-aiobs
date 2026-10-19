@@ -1,0 +1,107 @@
+# OTLP-only mode: the collector exports app telemetry to Dynatrace (no OneAgent).
+# DT_OTLP_ENDPOINT / DT_OTLP_TOKEN come from the `dynatrace` Secret created by deployTravelAdvisor.
+# TODO: optional otlp/arize exporter (see workshop-destination-automation otel-collector-config.yaml.j2).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: ai-travel-advisor
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: weaviate
+              scrape_interval: 15s
+              static_configs:
+                - targets: ["weaviate:2112"]
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      cumulativetodelta: {}
+      resource/training:
+        attributes:
+          - key: service.namespace
+            value: openinference-aiobs
+            action: upsert
+    exporters:
+      otlphttp/dynatrace:
+        endpoint: ${env:DT_OTLP_ENDPOINT}
+        headers:
+          Authorization: "Api-Token ${env:DT_OTLP_TOKEN}"
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource/training, batch]
+          exporters: [otlphttp/dynatrace]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [resource/training, cumulativetodelta, batch]
+          exporters: [otlphttp/dynatrace]
+        logs:
+          receivers: [otlp]
+          processors: [resource/training, batch]
+          exporters: [otlphttp/dynatrace]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: ai-travel-advisor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: ghcr.io/dynatrace/dynatrace-otel-collector/dynatrace-otel-collector:0.45.0
+          args: ["--config=/etc/otel/config.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+          env:
+            - name: DT_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: dynatrace, key: endpoint }
+            - name: DT_OTLP_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dynatrace, key: token }
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: ai-travel-advisor
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: 4317 }
+    - { name: otlp-http, port: 4318, targetPort: 4318 }
