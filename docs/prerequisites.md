@@ -5,6 +5,7 @@
 You need:
 
 - A Dynatrace tenant with the Enablement app installed.
+- Optional: an Arize AX account (space ID and API key). Without them the AI Travel Advisor still runs, but traces are only exported to Dynatrace. Provide them as the `ARIZE_SPACE_ID` and `ARIZE_API_KEY` secrets (Codespaces) or in `.devcontainer/.env` (local).
 - Nothing on your laptop: the terminal, the cluster and the AI Travel Advisor run in your environment.
 
 <!-- Optional example of a step setup block: it runs silently each time the page opens, must be
