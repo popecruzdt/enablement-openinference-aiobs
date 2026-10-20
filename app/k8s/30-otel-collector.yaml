@@ -1,6 +1,8 @@
 # OTLP-only mode: the collector exports app telemetry to Dynatrace (no OneAgent).
 # DT_OTLP_ENDPOINT / DT_OTLP_TOKEN come from the `dynatrace` Secret created by deployTravelAdvisor.
-# TODO: optional otlp/arize exporter (see workshop-destination-automation otel-collector-config.yaml.j2).
+# Traces are also exported to Arize AX (otlp_grpc/arize, gRPC). ARIZE_OTLP_ENDPOINT / ARIZE_SPACE_ID / ARIZE_API_KEY
+# come from the `arize` Secret created by deployTravelAdvisor; without credentials it holds placeholders and
+# the Arize export does not work. The app sets openinference.project.name, which names the Arize AX project.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,31 +28,41 @@ data:
       batch:
         timeout: 10s
         send_batch_size: 1024
-      cumulativetodelta: {}
+      cumulative_to_delta: {}
       resource/training:
         attributes:
           - key: service.namespace
             value: openinference-aiobs
             action: upsert
     exporters:
-      otlphttp/dynatrace:
+      otlp_http/dynatrace:
         endpoint: ${env:DT_OTLP_ENDPOINT}
         headers:
           Authorization: "Api-Token ${env:DT_OTLP_TOKEN}"
+      otlp_grpc/arize:
+        endpoint: ${env:ARIZE_OTLP_ENDPOINT}
+        headers:
+          arize-space-id: ${env:ARIZE_SPACE_ID}
+          arize-api-key: ${env:ARIZE_API_KEY}
+        timeout: 20s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 10s
     service:
       pipelines:
         traces:
           receivers: [otlp]
           processors: [resource/training, batch]
-          exporters: [otlphttp/dynatrace]
+          exporters: [otlp_http/dynatrace, otlp_grpc/arize]
         metrics:
           receivers: [otlp, prometheus]
-          processors: [resource/training, cumulativetodelta, batch]
-          exporters: [otlphttp/dynatrace]
+          processors: [resource/training, cumulative_to_delta, batch]
+          exporters: [otlp_http/dynatrace]
         logs:
           receivers: [otlp]
           processors: [resource/training, batch]
-          exporters: [otlphttp/dynatrace]
+          exporters: [otlp_http/dynatrace]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,7 +81,7 @@ spec:
     spec:
       containers:
         - name: otel-collector
-          image: ghcr.io/dynatrace/dynatrace-otel-collector/dynatrace-otel-collector:0.45.0
+          image: ghcr.io/dynatrace/dynatrace-otel-collector/dynatrace-otel-collector:0.58.0
           args: ["--config=/etc/otel/config.yaml"]
           ports:
             - { name: otlp-grpc, containerPort: 4317 }
@@ -81,6 +93,15 @@ spec:
             - name: DT_OTLP_TOKEN
               valueFrom:
                 secretKeyRef: { name: dynatrace, key: token }
+            - name: ARIZE_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: arize, key: endpoint }
+            - name: ARIZE_SPACE_ID
+              valueFrom:
+                secretKeyRef: { name: arize, key: space-id }
+            - name: ARIZE_API_KEY
+              valueFrom:
+                secretKeyRef: { name: arize, key: api-key }
           resources:
             requests:
               cpu: 100m

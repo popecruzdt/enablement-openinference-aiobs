@@ -34,7 +34,9 @@ deployTravelAdvisor() {
   kubectl apply -f "$k8s_dir/00-namespace.yaml"
 
   # Collector credentials (OTLP export to Dynatrace). Never written to the repo.
-  if dynatraceEvalReadSaveCredentials && [ -n "${DT_INGEST_TOKEN:-}" ]; then
+  # Only the ingest token is needed (no Operator is deployed), so validate it directly:
+  # dynatraceEvalReadSaveCredentials would also require DT_OPERATOR_TOKEN.
+  if variablesNeeded DT_ENVIRONMENT:true DT_INGEST_TOKEN:true; then
     kubectl -n "$TRAVEL_ADVISOR_NS" create secret generic dynatrace \
       --from-literal="token=$DT_INGEST_TOKEN" \
       --from-literal="endpoint=$DT_OTEL_ENDPOINT" \
@@ -44,6 +46,22 @@ deployTravelAdvisor() {
     kubectl -n "$TRAVEL_ADVISOR_NS" create secret generic dynatrace \
       --from-literal="token=unset" \
       --from-literal="endpoint=http://localhost:4318" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  fi
+
+  # Collector credentials (OTLP export to Arize AX). Optional; never written to the repo.
+  if [ -n "${ARIZE_SPACE_ID:-}" ] && [ -n "${ARIZE_API_KEY:-}" ]; then
+    kubectl -n "$TRAVEL_ADVISOR_NS" create secret generic arize \
+      --from-literal="space-id=$ARIZE_SPACE_ID" \
+      --from-literal="api-key=$ARIZE_API_KEY" \
+      --from-literal="endpoint=${ARIZE_OTLP_ENDPOINT:-otlp.arize.com:443}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  else
+    printWarn "Arize credentials missing (ARIZE_SPACE_ID, ARIZE_API_KEY): creating the arize secret with placeholders; the collector will not export to Arize"
+    kubectl -n "$TRAVEL_ADVISOR_NS" create secret generic arize \
+      --from-literal="space-id=unset" \
+      --from-literal="api-key=unset" \
+      --from-literal="endpoint=localhost:4317" \
       --dry-run=client -o yaml | kubectl apply -f -
   fi
 

@@ -21,6 +21,10 @@ installK9s
 #deployCloudNative
 #deployApplicationMonitoring
 
+# Declares the variables this training reads (also used to generate .devcontainer/.env.example for local runs).
+# All optional: without Dynatrace or Arize credentials the stack still deploys, but the collector does not export.
+variablesNeeded DT_ENVIRONMENT:false DT_INGEST_TOKEN:false ARIZE_SPACE_ID:false ARIZE_API_KEY:false
+
 # AI Travel Advisor stack: nginx, travel-advisor (FastAPI), ollama, weaviate, otel-collector.
 # Defined in .devcontainer/util/my_functions.sh, manifests in app/k8s/.
 deployTravelAdvisor
