@@ -101,7 +101,7 @@ Agentic mode runs a LangGraph `StateGraph` named `travel_agent` (`src/agent/grap
 The graph has two paths:
 
 1. Tool calling: when the model in `AI_MODEL` has the Ollama `tools` capability (for example `qwen2.5` and `llama3.2`), the `call_model` node lets the model choose tools at temperature 0, and the `tools` node runs them in a loop of at most `AGENT_MAX_STEPS` model turns.
-2. Fallback: when the model has no tool support (for example `gemma2`, `gemma3:1b`, `orca-mini`) or returns no tool calls, the `plan_fallback` node calls all three tools in a fixed order through the same `tools` node.
+2. Fallback: when the model has no tool support (for example `gemma3:1b-it-qat`, `orca-mini:3b`) or returns no tool calls, the `plan_fallback` node calls all three tools in a fixed order through the same `tools` node.
 
 On both paths the `respond` node writes the final answer from the tool results using `AI_TEMPERATURE`. Tool support is detected once at startup with `ollama show`, so restart the app after changing `AI_MODEL`.
 

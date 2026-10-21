@@ -1,0 +1,25 @@
+# Runtime settings for travel-advisor. This is the single place that names the Ollama models:
+# the pull Job (11) and the wait-for-backends init container (40) read AI_MODEL / AI_EMBEDDING_MODEL from here.
+# Change the model of a running stack with `changeAiModel <model>` (see .devcontainer/util/my_functions.sh).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: travel-advisor-env
+  namespace: ai-travel-advisor
+data:
+  HOST: "0.0.0.0"
+  PORT: "8080"
+  OLLAMA_ENDPOINT: "http://ollama:11434"
+  AI_MODEL: "llama3.2:1b-instruct-q4_K_M"
+  AI_EMBEDDING_MODEL: "nomic-embed-text"
+  AI_TEMPERATURE: "0.7"
+  WEAVIATE_ENDPOINT: "weaviate"
+  WEAVIATE_PORT: "8080"
+  CHUNK_SIZE: "500"
+  CHUNK_OVERLAP: "0"
+  RETRIEVAL_K: "10"
+  MIN_KB_OBJECTS: "450"
+  OPENLLMETRY_ENABLED: "true"
+  TRACELOOP_TRACE_CONTENT: "true"
+  OTEL_SERVICE_NAME: "ai-travel-advisor"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"

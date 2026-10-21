@@ -326,7 +326,7 @@ class RAGPipeline:
         To restore: call with the configured AI_EMBEDDING_MODEL value.
 
         Args:
-            model: Ollama model name (e.g. 'gemma2:2b' to break, 'nomic-embed-text' to fix)
+            model: Ollama model name (e.g. the active chat model, AI_MODEL, to break; 'nomic-embed-text' to fix)
 
         Returns:
             dict with previous_model, current_model, and collection name
@@ -357,14 +357,14 @@ class RAGPipeline:
         resp.raise_for_status()
         raw_vec = resp.json()["embeddings"][0]
 
-        # The KB collection was indexed with gemma2:2b (2304-dim vectors via text2vec-ollama).
+        # The KB collection was indexed with AI_EMBEDDING_MODEL (nomic-embed-text, 768-dim vectors via text2vec-ollama).
         # If the override model returns a vector with a DIFFERENT dimension, we deliberately
         # produce a dimension mismatch so that Weaviate raises an exception on near_vector.
         # The caller catches that exception and records distance=1.0 on the OTel span,
         # creating the observable drift anomaly in Dynatrace.
         # We use 768 as the sentinel "wrong" dimension (nomic-embed-text output size).
-        # gemma2:2b returns 2304-dim, so 2304 != 768 → truncate+negate → Weaviate rejects.
-        stored_dim = 768  # intentional mismatch sentinel (KB actually stores 2304-dim)
+        # A chat model such as the active AI_MODEL returns a different size, so != 768 → truncate+negate → Weaviate rejects.
+        stored_dim = 768  # intentional mismatch sentinel
         if len(raw_vec) != stored_dim:
             logger.info(
                 f"Dim mismatch: override model '{model}' returned {len(raw_vec)}-dim vector; "

@@ -31,7 +31,7 @@ def set_embedding_override(model: str) -> None:
     Set or clear the embedding model override flag.
 
     Args:
-        model: Ollama model name to override with (e.g. 'gemma2:2b'), or empty string to reset.
+        model: Ollama model name to override with (e.g. the active chat model, AI_MODEL), or empty string to reset.
     """
     if model:
         logger.info(f"Feature flag '{EMBEDDING_OVERRIDE_FLAG}' set to override: {model}")
@@ -55,6 +55,6 @@ def get_embedding_override() -> str:
     Evaluate the embedding model override flag.
 
     Returns:
-        The override model name (e.g. 'gemma2:2b'), or '' if the flag is in its default state.
+        The override model name (e.g. the active chat model), or '' if the flag is in its default state.
     """
     return openfeature_api.get_client().get_string_value(EMBEDDING_OVERRIDE_FLAG, "")
