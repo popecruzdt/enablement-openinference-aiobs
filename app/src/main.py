@@ -965,7 +965,7 @@ async def prepare_knowledge_base() -> JSONResponse:
 async def set_embedding_model(model: str) -> JSONResponse:
     """
     Set or clear the embedding model override feature flag.
-    When overridden to a mismatched model (e.g. gemma2:2b), near_text queries produce a
+    When overridden to a mismatched model (e.g. the active chat model, AI_MODEL), near_text queries produce a
     vector dimension mismatch against stored 768-dim vectors, simulating embedding model drift.
     Distance metrics spike to 1.0 and result count drops to 0, triggering a Dynatrace anomaly.
     To restore: call with the configured AI_EMBEDDING_MODEL value (e.g. nomic-embed-text).

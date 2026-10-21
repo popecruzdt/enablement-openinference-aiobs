@@ -32,6 +32,8 @@ deployTravelAdvisor() {
   printInfoSection "Deploying AI Travel Advisor stack"
 
   kubectl apply -f "$k8s_dir/00-namespace.yaml"
+  # Runtime settings, including the model names the Ollama pull Job reads. Must exist before 11-ollama-pull-job.
+  kubectl apply -f "$k8s_dir/05-travel-advisor-config.yaml"
 
   # Collector credentials (OTLP export to Dynatrace). Never written to the repo.
   # Only the ingest token is needed (no Operator is deployed), so validate it directly:
@@ -70,6 +72,8 @@ deployTravelAdvisor() {
     --from-file="$prompts_dir" --dry-run=client -o yaml | kubectl apply -f -
 
   printInfo "Deploying Ollama and pulling models"
+  # The volume is applied only when it does not exist: its size cannot change afterwards (local-path), and re-applying a new size errors.
+  kubectl -n "$TRAVEL_ADVISOR_NS" get pvc ollama-pvc >/dev/null 2>&1 || kubectl apply -f "$k8s_dir/09-ollama-pvc.yaml"
   kubectl apply -f "$k8s_dir/10-ollama.yaml"
   kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/ollama --timeout=10m
   kubectl -n "$TRAVEL_ADVISOR_NS" delete job ollama-pull --ignore-not-found
@@ -96,6 +100,50 @@ deployTravelAdvisor() {
 
   # registerApp already sets 3600s proxy timeouts on the ingress, which covers slow LLM responses.
   registerApp "ai-travel-advisor" "$TRAVEL_ADVISOR_NS" "travel-advisor-nginx" 80
+}
+
+# Chat models the AI Travel Advisor supports (space separated). changeAiModel only accepts these.
+# To try another Ollama model, add it here: models that are not on this list are unsupported and used at your own risk.
+# Keep the default (AI_MODEL in app/k8s/05-travel-advisor-config.yaml) on this list. The Ollama volume (app/k8s/10-ollama.yaml)
+# is sized for all of these plus the embedding model; check its size before adding a larger one.
+SUPPORTED_AI_MODELS="qwen2.5:0.5b-instruct-q4_K_M llama3.2:1b-instruct-q4_K_M gemma3:1b-it-qat orca-mini:3b"
+
+# Shows or changes the chat model of the running AI Travel Advisor, without redeploying the stack.
+#   changeAiModel            show the current chat model and the supported ones
+#   changeAiModel <model>    switch the chat model, e.g. changeAiModel gemma3:1b-it-qat
+# It pulls the model into Ollama, updates AI_MODEL in the travel-advisor-env ConfigMap and restarts only travel-advisor.
+# The change lives in the cluster: deployTravelAdvisor re-applies the default from app/k8s/05-travel-advisor-config.yaml.
+changeAiModel() {
+  local model="${1:-}" current m supported=false
+  current=$(kubectl -n "$TRAVEL_ADVISOR_NS" get configmap travel-advisor-env -o jsonpath='{.data.AI_MODEL}' 2>/dev/null)
+  if [ -z "$current" ]; then
+    printError "The travel-advisor-env ConfigMap was not found: deploy the stack first (deployTravelAdvisor)"; return 1
+  fi
+
+  if [ -z "$model" ]; then
+    printInfo "Current chat model (AI_MODEL): $current"
+    printInfo "Supported models: $SUPPORTED_AI_MODELS"
+    printInfo "Change it with: changeAiModel <model>"
+    return 0
+  fi
+
+  for m in $SUPPORTED_AI_MODELS; do [ "$m" = "$model" ] && supported=true; done
+  if [ "$supported" != "true" ]; then
+    printError "'$model' is not a supported model. Supported models: $SUPPORTED_AI_MODELS"
+    printInfo "The list is SUPPORTED_AI_MODELS in ${REPO_PATH:-.}/.devcontainer/util/my_functions.sh. You can add a model there, at your own risk and without support."
+    return 1
+  fi
+
+  printInfoSection "Changing the chat model to $model"
+  # Pull first: if the pull fails, nothing has changed yet.
+  kubectl -n "$TRAVEL_ADVISOR_NS" exec deploy/ollama -- ollama pull "$model" \
+    || { printError "Could not pull $model into Ollama: nothing was changed"; return 1; }
+  kubectl -n "$TRAVEL_ADVISOR_NS" patch configmap travel-advisor-env --type merge -p "{\"data\":{\"AI_MODEL\":\"$model\"}}" || return 1
+  # The app reads its settings at startup, so only travel-advisor is restarted (Ollama and Weaviate keep running).
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout restart deploy/travel-advisor || return 1
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m \
+    || { printError "travel-advisor did not become ready with $model: check 'kubectl -n $TRAVEL_ADVISOR_NS logs deploy/travel-advisor'"; return 1; }
+  printInfo "The chat model is now $model"
 }
 
 undeployTravelAdvisor() {
