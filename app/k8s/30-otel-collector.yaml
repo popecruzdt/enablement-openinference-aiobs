@@ -35,6 +35,27 @@ data:
       gen_ai_normalizer:
         sources:
           - name: openinference
+      # Runs before the normalizer. LangGraph puts the agent name in the JSON `metadata` attribute
+      # ({"agent_name": "..."}); the normalizer only maps `agent.name` to gen_ai.agent.name, and
+      # Dynatrace AI Observability identifies agents by gen_ai.agent.name.
+      transform/agent_name:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - set(span.attributes["agent.name"], ParseJSON(span.attributes["metadata"])["agent_name"]) where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["agent.name"] == nil and IsString(span.attributes["metadata"])
+      # Runs after the normalizer. The normalizer maps both AGENT and CHAIN to invoke_agent, which would
+      # label every LangGraph node and workflow span as an agent invocation: keep it for AGENT spans only.
+      # The agent span has no provider; Dynatrace ties a GENAI_AGENT entity to the framework it runs under.
+      # OpenInference has no response model, so reuse the request model on LLM spans.
+      transform/gen_ai_cleanup:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - delete_key(span.attributes, "gen_ai.operation.name") where span.attributes["openinference.span.kind"] == "CHAIN" and span.attributes["gen_ai.operation.name"] == "invoke_agent"
+              - set(span.attributes["gen_ai.provider.name"], "langchain") where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["gen_ai.provider.name"] == nil
+              - set(span.attributes["gen_ai.response.model"], span.attributes["gen_ai.request.model"]) where span.attributes["openinference.span.kind"] == "LLM" and span.attributes["gen_ai.request.model"] != nil and span.attributes["gen_ai.response.model"] == nil
       resource/training:
         attributes:
           - key: service.namespace
@@ -59,7 +80,7 @@ data:
       pipelines:
         traces/dynatrace:
           receivers: [otlp]
-          processors: [resource/training, gen_ai_normalizer, batch]
+          processors: [resource/training, transform/agent_name, gen_ai_normalizer, transform/gen_ai_cleanup, batch]
           exporters: [otlp_http/dynatrace]
         traces/arize:
           receivers: [otlp]

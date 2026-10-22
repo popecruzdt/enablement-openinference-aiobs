@@ -10,7 +10,8 @@ import os
 import logging
 import re
 import time
-from contextlib import asynccontextmanager
+import uuid
+from contextlib import asynccontextmanager, nullcontext
 from typing import Optional
 
 import ollama
@@ -24,7 +25,7 @@ from opentelemetry.sdk.trace import SpanProcessor
 from src.config import get_settings
 from src.utils import setup_logging, format_rag_response, format_error_response
 from src.rag import get_rag_pipeline
-from src.telemetry import instrument_ollama_middle_span, setup_tracing, workflow
+from src.telemetry import ContextAttributesSpanProcessor, instrument_ollama_middle_span, setup_tracing, workflow
 from src.telemetry.feature_flag_events import setup_feature_flag_events
 from src.agent import (
     build_agent_graph,
@@ -77,7 +78,7 @@ class _GenAIModelSpanProcessor(SpanProcessor):
             pass
 
         span_name = getattr(span, "name", "")
-        # Process GenAI-related operations (Ollama client, LangChain-named spans)
+        # Process only the Ollama client span (see _should_process_span)
         if _is_openinference_span(span) or not self._should_process_span(span_name):
             return
 
@@ -140,15 +141,12 @@ class _GenAIModelSpanProcessor(SpanProcessor):
             pass
 
     def _should_process_span(self, span_name: str) -> bool:
-        """Check if this span should be processed as a GenAI operation."""
-        if not span_name:
-            return False
-        # Match common GenAI span names
-        genai_keywords = [
-            "ChatOllama", "Ollama", "generate", "chat", "embedding",
-            "invoke", "llm", "gen_ai", "langchain"
-        ]
-        return any(keyword.lower() in span_name.lower() for keyword in genai_keywords)
+        """Only the app's own Ollama client span needs GenAI attributes set here.
+
+        OpenInference spans get gen_ai.* from the collector's gen_ai_normalizer, and the
+        workflow and Weaviate spans are not GenAI operations.
+        """
+        return span_name == "ollama.client.request"
 
     def _infer_operation_name(self, span_name: str) -> str:
         """Infer operation type from span name."""
@@ -437,7 +435,11 @@ def initialize_opentelemetry():
             insecure=insecure,
             service_name="ai-travel-advisor",
             project_name="ai-travel-advisor",
-            span_processors=[_GenAIModelSpanProcessor(ai_model), _OpenInferenceKindSpanProcessor()],
+            span_processors=[
+                _GenAIModelSpanProcessor(ai_model),
+                _OpenInferenceKindSpanProcessor(),
+                ContextAttributesSpanProcessor(),
+            ],
         )
 
         setup_openinference_instrumentation()
@@ -641,14 +643,29 @@ async def status():
 
 
 # ==================== Travel Advisor Endpoints ====================
+def _session_context(session_id: str):
+    """OpenInference session context for one request.
+
+    The session id becomes `session.id` on every span (and `gen_ai.conversation.id` in Dynatrace).
+    """
+    try:
+        from openinference.instrumentation import using_session
+
+        return using_session(session_id.strip()[:128] or uuid.uuid4().hex)
+    except ImportError:
+        return nullcontext()
+
+
 @app.get("/api/v1/completion", tags=["Travel Advisor"])
-async def submit_completion(framework: str = "rag", prompt: str = "") -> JSONResponse:
+async def submit_completion(framework: str = "rag", prompt: str = "", session_id: str = "") -> JSONResponse:
     """
     Get travel advice using different frameworks.
     
     Args:
         framework: "llm" (direct LLM), "rag" (retrieval augmented), or "agentic"
         prompt: The destination or query
+        session_id: Optional conversation id; requests that share it are grouped as one
+            conversation in Arize AX and Dynatrace. A new id is generated when omitted.
         
     Returns:
         Travel advice response
@@ -662,18 +679,19 @@ async def submit_completion(framework: str = "rag", prompt: str = "") -> JSONRes
             )
         )
     
+    if framework not in ("llm", "rag", "agentic"):
+        return JSONResponse(
+            status_code=400,
+            content=format_error_response(f"Framework '{framework}' not supported. Use 'llm', 'rag', or 'agentic'.", 400)
+        )
+
     try:
-        if framework == "llm":
-            return await llm_advice(prompt)
-        elif framework == "rag":
-            return await rag_advice(prompt)
-        elif framework == "agentic":
+        with _session_context(session_id):
+            if framework == "llm":
+                return await llm_advice(prompt)
+            elif framework == "rag":
+                return await rag_advice(prompt)
             return await agentic_advice(prompt)
-        else:
-            return JSONResponse(
-                status_code=400,
-                content=format_error_response(f"Framework '{framework}' not supported. Use 'llm', 'rag', or 'agentic'.", 400)
-            )
     except Exception as e:
         logger.error(f"Error in completion endpoint: {e}")
         return JSONResponse(
