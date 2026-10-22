@@ -1,6 +1,6 @@
 # OTLP-only mode: the collector exports app telemetry to Dynatrace (no OneAgent).
 # DT_OTLP_ENDPOINT / DT_OTLP_TOKEN come from the `dynatrace` Secret created by deployTravelAdvisor.
-# Traces are also exported to Arize AX (otlp_grpc/arize, gRPC). ARIZE_OTLP_ENDPOINT / ARIZE_SPACE_ID / ARIZE_API_KEY
+# Traces go to Dynatrace (traces/dynatrace, with gen_ai_normalizer) and to Arize AX (traces/arize, otlp_grpc/arize, gRPC). ARIZE_OTLP_ENDPOINT / ARIZE_SPACE_ID / ARIZE_API_KEY
 # come from the `arize` Secret created by deployTravelAdvisor; without credentials it holds placeholders and
 # the Arize export does not work. The app sets openinference.project.name, which names the Arize AX project.
 apiVersion: v1
@@ -29,6 +29,12 @@ data:
         timeout: 10s
         send_batch_size: 1024
       cumulative_to_delta: {}
+      # Maps OpenInference attributes to the OpenTelemetry gen_ai.* conventions so Dynatrace AI Observability
+      # understands the LLM, agent and tool spans. Applied only on the Dynatrace pipeline: the original
+      # OpenInference attributes are kept (no remove_originals) but Arize does not need the extra ones.
+      gen_ai_normalizer:
+        sources:
+          - name: openinference
       resource/training:
         attributes:
           - key: service.namespace
@@ -51,10 +57,14 @@ data:
           max_interval: 10s
     service:
       pipelines:
-        traces:
+        traces/dynatrace:
+          receivers: [otlp]
+          processors: [resource/training, gen_ai_normalizer, batch]
+          exporters: [otlp_http/dynatrace]
+        traces/arize:
           receivers: [otlp]
           processors: [resource/training, batch]
-          exporters: [otlp_http/dynatrace, otlp_grpc/arize]
+          exporters: [otlp_grpc/arize]
         metrics:
           receivers: [otlp, prometheus]
           processors: [resource/training, cumulative_to_delta, batch]
