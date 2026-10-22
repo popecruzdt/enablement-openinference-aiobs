@@ -53,9 +53,6 @@ class Settings(BaseSettings):
     dynatrace_api_token: str = os.getenv("DYNATRACE_API_TOKEN", "")
     api_token: str = os.getenv("API_TOKEN", "")
 
-    # Traceloop Configuration
-    traceloop_telemetry: bool = os.getenv("TRACELOOP_TELEMETRY", "false").lower() == "true"
-
     # Application Paths
     destinations_path: str = os.getenv("DESTINATIONS_PATH", "destinations")
     public_path: str = os.getenv("PUBLIC_PATH", "public")

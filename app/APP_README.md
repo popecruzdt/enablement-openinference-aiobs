@@ -174,18 +174,17 @@ Filesystem paths:
 
 OpenTelemetry and tracing:
 
-- `OPENLLMETRY_ENABLED`
+- `OTEL_ENABLED`
 - `OTEL_EXPORTER_OTLP_ENDPOINT`
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
 - `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
 - `OTEL_SERVICE_NAME`
-- `TRACELOOP_TRACE_CONTENT`
 
-Instrumentation sources when `OPENLLMETRY_ENABLED=true`:
+Instrumentation sources when `OTEL_ENABLED=true`:
 
-- LangChain and LangGraph spans (LLM calls, the `travel_agent` graph, its nodes and tools) come from OpenInference (`openinference-instrumentation-langchain`). Traceloop's LangChain instrumentor is blocked to avoid duplicate spans.
-- Traceloop (OpenLLMetry) still sets up the tracer provider and exporter, the `@workflow` spans (`llm_advice_workflow`, `rag_advice_workflow`, `agentic_advice_workflow`), and its other instrumentors.
-- Traceloop-created spans have no OpenInference kind of their own, so `_OpenInferenceKindSpanProcessor` sets `openinference.span.kind` when they start: `CHAIN` for `@workflow`/`@task` spans and Weaviate operations, `RETRIEVER` for Weaviate queries. Without it, Arize AX shows these spans with kind `unknown`. The tag reaches Arize through the OpenTelemetry export; OneAgent captures spans before it is set, so Dynatrace does not see it.
+- LangChain and LangGraph spans (LLM calls, the `travel_agent` graph, its nodes and tools) come from OpenInference (`openinference-instrumentation-langchain`).
+- The OpenTelemetry SDK sets up the tracer provider and OTLP exporter (`src/telemetry/setup.py`). The `@workflow` decorator (`src/telemetry/workflows.py`) creates the `llm_advice_workflow`, `rag_advice_workflow` and `agentic_advice_workflow` spans as CHAIN spans with `input.value` and `output.value`.
+- The manual Weaviate spans have no OpenInference kind of their own, so `_OpenInferenceKindSpanProcessor` sets `openinference.span.kind` when they start: `CHAIN` for Weaviate operations, `RETRIEVER` for Weaviate queries. Without it, Arize AX shows these spans with kind `unknown`. The `@workflow` spans set their own kind. The tag reaches Arize through the OpenTelemetry export; OneAgent captures spans before it is set, so Dynatrace does not see it.
 - OpenInference does not make its LangChain/LangGraph spans the current OpenTelemetry span, so spans created inside a tool or LLM call would be parented to the workflow span. `langchain_span_context()` (`src/telemetry/langchain_context.py`) activates the running tool or node span around KB retrieval (`RAGPipeline.retrieve_context`) and the `ollama.client.request` span, so the `weaviate.*` spans nest under `search_destination_kb`. If the span cannot be found, behavior falls back to the previous nesting. Spans captured natively by OneAgent (`weaviate.v1.Weaviate/*`, `POST`) are parented by OneAgent and stay under the request span.
 - The OpenTelemetry HTTPX auto-instrumentation is not enabled. Weaviate queries use gRPC (covered by the gRPC client instrumentation), and HTTPX `POST` spans for Ollama `/api/chat` only duplicated the `ChatOllama` and `ollama.client.request` spans. As a result there are no OTel spans for the Weaviate startup REST calls or the embedding-drift `/api/embed` call. OneAgent still captures its own native `POST` span for Ollama calls.
 - OpenInference spans are exported as emitted (OpenInference semantic conventions, Arize AX as the primary consumer). The resource attribute `openinference.project.name=ai-travel-advisor` sets the Arize AX project. The app does not add Dynatrace-specific attributes to these spans.
@@ -194,7 +193,7 @@ Instrumentation sources when `OPENLLMETRY_ENABLED=true`:
 
 Note on legacy config values:
 
-- `src/config.py` still defines some older telemetry-related settings such as `OTEL_ENABLED`, `OTEL_ENDPOINT`, `DYNATRACE_API_URL`, `DYNATRACE_API_TOKEN`, `API_TOKEN`, and `TRACELOOP_TELEMETRY`, but the current runtime instrumentation path is controlled by `OPENLLMETRY_ENABLED` and the `OTEL_EXPORTER_OTLP_*` variables above.
+- `src/config.py` still defines some older telemetry-related settings such as `OTEL_ENDPOINT`, `DYNATRACE_API_URL`, `DYNATRACE_API_TOKEN` and `API_TOKEN`, but the current runtime instrumentation path is controlled by `OTEL_ENABLED` and the `OTEL_EXPORTER_OTLP_*` variables above.
 
 ### 2. Runtime-managed files
 
@@ -216,7 +215,7 @@ These endpoints change or refresh behavior at runtime:
 
 The embedding override is implemented with an in-process OpenFeature provider in `src/feature_flags.py`. It is not persisted across restarts.
 
-Flag changes are observable. `src/telemetry/feature_flag_events.py` registers an OpenFeature `PROVIDER_CONFIGURATION_CHANGED` handler (only when `OPENLLMETRY_ENABLED=true`). When the flag value actually changes, it emits one OpenTelemetry log record over OTLP (event name `feature_flag.change`) with `feature_flag.key`, `feature_flag.provider.name`, `feature_flag.result.value` (empty string when the flag is at its default), `feature_flag.previous_value`, `feature_flag.result.variant` (the embedding model actually in use: the override, or the configured `AI_EMBEDDING_MODEL` at the default) and `feature_flag.result.enabled` (`true` while an override is active, `false` at the default). Setting the flag to its current value emits nothing. The record carries `service.name=ai-travel-advisor`; when OneAgent is detected, its entity IDs (process group instance, host, host group) are added to the log resource as well. The OpenTelemetry Collector exports it to Dynatrace (`otel_collector_dynatrace_export_logs`), where the destination-automation logs pipeline extracts a Davis event (`CUSTOM_CONFIGURATION`) from the record. The flag state is per app process, so the event is emitted by the worker that handled the change request.
+Flag changes are observable. `src/telemetry/feature_flag_events.py` registers an OpenFeature `PROVIDER_CONFIGURATION_CHANGED` handler (only when `OTEL_ENABLED=true`). When the flag value actually changes, it emits one OpenTelemetry log record over OTLP (event name `feature_flag.change`) with `feature_flag.key`, `feature_flag.provider.name`, `feature_flag.result.value` (empty string when the flag is at its default), `feature_flag.previous_value`, `feature_flag.result.variant` (the embedding model actually in use: the override, or the configured `AI_EMBEDDING_MODEL` at the default) and `feature_flag.result.enabled` (`true` while an override is active, `false` at the default). Setting the flag to its current value emits nothing. The record carries `service.name=ai-travel-advisor`; when OneAgent is detected, its entity IDs (process group instance, host, host group) are added to the log resource as well. The OpenTelemetry Collector exports it to Dynatrace (`otel_collector_dynatrace_export_logs`), where the destination-automation logs pipeline extracts a Davis event (`CUSTOM_CONFIGURATION`) from the record. The flag state is per app process, so the event is emitted by the worker that handled the change request.
 
 ## Local Run Modes
 
