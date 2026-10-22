@@ -33,6 +33,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from src.agent.tools import match_known_destination
+from src.telemetry.prompts import prompt_template_context
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,8 @@ def build_agent_graph(
 
     def call_model(state: AgentState) -> dict:
         messages = [SystemMessage(content=system_prompt), *state["messages"]]
-        response = agent_model.invoke(messages)
+        with prompt_template_context(system_prompt):
+            response = agent_model.invoke(messages)
         return {"messages": [response], "path": "tool_calling", "steps": state.get("steps", 0) + 1}
 
     def route_model(state: AgentState) -> str:
@@ -197,11 +199,10 @@ def build_agent_graph(
             logger.info("Knowledge base has no information for the request; skipping LLM answer")
             return {"answer": NO_INFORMATION_ANSWER}
 
-        prompt = respond_prompt.format(
-            tool_results=_format_tool_results(state["messages"]),
-            request=state["request"],
-        )
-        response = chat_model.invoke(prompt)
+        tool_results = _format_tool_results(state["messages"])
+        prompt = respond_prompt.format(tool_results=tool_results, request=state["request"])
+        with prompt_template_context(respond_prompt, {"tool_results": tool_results, "request": state["request"]}):
+            response = chat_model.invoke(prompt)
         answer = response.content if hasattr(response, "content") else str(response)
         return {"answer": answer}
 

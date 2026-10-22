@@ -37,7 +37,7 @@ spec:
               done
       containers:
         - name: travel-advisor
-          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.1.0
+          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

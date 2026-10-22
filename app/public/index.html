@@ -522,6 +522,16 @@
   <script>
     // Configuration
     const API_ENDPOINT = '/api/v1';
+
+    // One conversation id per browser tab: questions asked in the same tab are grouped as one session in Arize AX and Dynatrace.
+    function getSessionId() {
+      let id = sessionStorage.getItem('travelAdvisorSessionId');
+      if (!id) {
+        id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).replace(/-/g, '');
+        sessionStorage.setItem('travelAdvisorSessionId', id);
+      }
+      return id;
+    }
     const MAX_PROMPT_LENGTH = 50;
     let lastSearchTerm = '';
 
@@ -623,7 +633,7 @@
       clearError();
 
       try {
-        const response = await fetch(`${API_ENDPOINT}/completion?framework=${encodeURIComponent(framework)}&prompt=${encodeURIComponent(prompt)}`);
+        const response = await fetch(`${API_ENDPOINT}/completion?framework=${encodeURIComponent(framework)}&prompt=${encodeURIComponent(prompt)}&session_id=${encodeURIComponent(getSessionId())}`);
         const contentType = response.headers.get('content-type') || '';
         let data = null;
 
