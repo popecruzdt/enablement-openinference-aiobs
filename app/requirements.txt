@@ -42,16 +42,9 @@ opentelemetry-instrumentation-requests==0.62b0
 opentelemetry-instrumentation-sqlalchemy==0.62b0
 opentelemetry-instrumentation-grpc==0.62b0
 python-json-logger==2.0.7
-traceloop-sdk==0.53.3
-# OpenInference instruments LangChain/LangGraph (Traceloop's LangChain instrumentor
-# is blocked in Traceloop.init to avoid duplicate span trees).
+# OpenInference instruments LangChain/LangGraph.
 openinference-instrumentation-langchain==0.1.78
 openinference-semantic-conventions>=0.1.41
-# wrapt is a transitive dep of opentelemetry-instrumentation-langchain (via traceloop-sdk).
-# wrapt 2.x removed the module= keyword from wrap_function_wrapper(), breaking the
-# LangChain instrumentor and causing ChatOllama.chat spans to disappear.
-# Pin to the last 1.x release to keep the API intact.
-wrapt==1.17.2
 
 # Feature Flags
 openfeature-sdk==0.8.4

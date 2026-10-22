@@ -1,6 +1,6 @@
 # OTLP-only mode: the collector exports app telemetry to Dynatrace (no OneAgent).
 # DT_OTLP_ENDPOINT / DT_OTLP_TOKEN come from the `dynatrace` Secret created by deployTravelAdvisor.
-# Traces are also exported to Arize AX (otlp_grpc/arize, gRPC). ARIZE_OTLP_ENDPOINT / ARIZE_SPACE_ID / ARIZE_API_KEY
+# Traces go to Dynatrace (traces/dynatrace, with gen_ai_normalizer) and to Arize AX (traces/arize, otlp_grpc/arize, gRPC). ARIZE_OTLP_ENDPOINT / ARIZE_SPACE_ID / ARIZE_API_KEY
 # come from the `arize` Secret created by deployTravelAdvisor; without credentials it holds placeholders and
 # the Arize export does not work. The app sets openinference.project.name, which names the Arize AX project.
 apiVersion: v1
@@ -29,6 +29,33 @@ data:
         timeout: 10s
         send_batch_size: 1024
       cumulative_to_delta: {}
+      # Maps OpenInference attributes to the OpenTelemetry gen_ai.* conventions so Dynatrace AI Observability
+      # understands the LLM, agent and tool spans. Applied only on the Dynatrace pipeline: the original
+      # OpenInference attributes are kept (no remove_originals) but Arize does not need the extra ones.
+      gen_ai_normalizer:
+        sources:
+          - name: openinference
+      # Runs before the normalizer. LangGraph puts the agent name in the JSON `metadata` attribute
+      # ({"agent_name": "..."}); the normalizer only maps `agent.name` to gen_ai.agent.name, and
+      # Dynatrace AI Observability identifies agents by gen_ai.agent.name.
+      transform/agent_name:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - set(span.attributes["agent.name"], ParseJSON(span.attributes["metadata"])["agent_name"]) where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["agent.name"] == nil and IsString(span.attributes["metadata"])
+      # Runs after the normalizer. The normalizer maps both AGENT and CHAIN to invoke_agent, which would
+      # label every LangGraph node and workflow span as an agent invocation: keep it for AGENT spans only.
+      # The agent span has no provider; Dynatrace ties a GENAI_AGENT entity to the framework it runs under.
+      # OpenInference has no response model, so reuse the request model on LLM spans.
+      transform/gen_ai_cleanup:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - delete_key(span.attributes, "gen_ai.operation.name") where span.attributes["openinference.span.kind"] == "CHAIN" and span.attributes["gen_ai.operation.name"] == "invoke_agent"
+              - set(span.attributes["gen_ai.provider.name"], "langchain") where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["gen_ai.provider.name"] == nil
+              - set(span.attributes["gen_ai.response.model"], span.attributes["gen_ai.request.model"]) where span.attributes["openinference.span.kind"] == "LLM" and span.attributes["gen_ai.request.model"] != nil and span.attributes["gen_ai.response.model"] == nil
       resource/training:
         attributes:
           - key: service.namespace
@@ -51,10 +78,14 @@ data:
           max_interval: 10s
     service:
       pipelines:
-        traces:
+        traces/dynatrace:
+          receivers: [otlp]
+          processors: [resource/training, transform/agent_name, gen_ai_normalizer, transform/gen_ai_cleanup, batch]
+          exporters: [otlp_http/dynatrace]
+        traces/arize:
           receivers: [otlp]
           processors: [resource/training, batch]
-          exporters: [otlp_http/dynatrace, otlp_grpc/arize]
+          exporters: [otlp_grpc/arize]
         metrics:
           receivers: [otlp, prometheus]
           processors: [resource/training, cumulative_to_delta, batch]

@@ -10,7 +10,8 @@ import os
 import logging
 import re
 import time
-from contextlib import asynccontextmanager
+import uuid
+from contextlib import asynccontextmanager, nullcontext
 from typing import Optional
 
 import ollama
@@ -24,7 +25,7 @@ from opentelemetry.sdk.trace import SpanProcessor
 from src.config import get_settings
 from src.utils import setup_logging, format_rag_response, format_error_response
 from src.rag import get_rag_pipeline
-from src.telemetry import instrument_ollama_middle_span
+from src.telemetry import ContextAttributesSpanProcessor, instrument_ollama_middle_span, setup_tracing, workflow
 from src.telemetry.feature_flag_events import setup_feature_flag_events
 from src.agent import (
     build_agent_graph,
@@ -41,20 +42,6 @@ logger = logging.getLogger("ai-travel-advisor")
 
 
 # ==================== OpenTelemetry Support ====================
-# Define no-op decorators by default (will be replaced if Traceloop is available and enabled)
-def workflow(name=None):
-    """No-op workflow decorator when Traceloop is disabled"""
-    def decorator(func):
-        return func
-    return decorator
-
-def task(name=None):
-    """No-op task decorator when Traceloop is disabled"""
-    def decorator(func):
-        return func
-    return decorator
-
-
 _weaviate_instrumented = False
 _opentelemetry_initialized = False
 
@@ -91,7 +78,7 @@ class _GenAIModelSpanProcessor(SpanProcessor):
             pass
 
         span_name = getattr(span, "name", "")
-        # Process GenAI-related operations from OpenLLMetry/LangChain
+        # Process only the Ollama client span (see _should_process_span)
         if _is_openinference_span(span) or not self._should_process_span(span_name):
             return
 
@@ -154,15 +141,12 @@ class _GenAIModelSpanProcessor(SpanProcessor):
             pass
 
     def _should_process_span(self, span_name: str) -> bool:
-        """Check if this span should be processed as a GenAI operation."""
-        if not span_name:
-            return False
-        # Match common GenAI span names from OpenLLMetry and LangChain
-        genai_keywords = [
-            "ChatOllama", "Ollama", "generate", "chat", "embedding",
-            "invoke", "llm", "gen_ai", "langchain"
-        ]
-        return any(keyword.lower() in span_name.lower() for keyword in genai_keywords)
+        """Only the app's own Ollama client span needs GenAI attributes set here.
+
+        OpenInference spans get gen_ai.* from the collector's gen_ai_normalizer, and the
+        workflow and Weaviate spans are not GenAI operations.
+        """
+        return span_name == "ollama.client.request"
 
     def _infer_operation_name(self, span_name: str) -> str:
         """Infer operation type from span name."""
@@ -231,12 +215,13 @@ class _GenAIModelSpanProcessor(SpanProcessor):
 
 
 class _OpenInferenceKindSpanProcessor(SpanProcessor):
-    """Tag Traceloop-created spans with `openinference.span.kind`.
+    """Tag the app's own spans with `openinference.span.kind`.
 
-    Arize AX classifies spans by `openinference.span.kind`; Traceloop's @workflow/@task
-    spans and Weaviate spans only carry `traceloop.span.kind`, so they show as "unknown".
+    Arize AX classifies spans by `openinference.span.kind`; the manual Weaviate spans and
+    any `.workflow` / `.task` span without a kind would otherwise show as "unknown".
     The kind is set in on_start (while the span is open) so it is exported as emitted.
-    Spans that already have a kind (OpenInference instrumentation) are left alone.
+    Spans that already have a kind (OpenInference instrumentation, the `@workflow` decorator)
+    are left alone.
     """
 
     _RETRIEVER_MARKERS = (".collections.query.", ".gql.query.get", ".gql.get")
@@ -329,30 +314,6 @@ def _set_span_attribute_compat(span, key: str, value: str) -> None:
         pass
 
 
-def _normalize_genai_model_attributes(span, fallback_model_name: str) -> None:
-    """Replace unknown GenAI model attributes on spans before export."""
-    try:
-        provider_model = _get_span_attribute(span, "traceloop.association.properties.ls_model_name")
-        model_name = provider_model or fallback_model_name
-        if not model_name:
-            return
-
-        req_model = _get_span_attribute(span, "gen_ai.request.model")
-        resp_model = _get_span_attribute(span, "gen_ai.response.model")
-
-        if req_model in (None, "", "unknown"):
-            _set_span_attribute_compat(span, "gen_ai.request.model", model_name)
-        if resp_model in (None, "", "unknown"):
-            _set_span_attribute_compat(span, "gen_ai.response.model", model_name)
-        if _get_span_attribute(span, "gen_ai.provider.name") in (None, ""):
-            _set_span_attribute_compat(span, "gen_ai.provider.name", "ollama")
-        if _get_span_attribute(span, "gen_ai.system") in (None, ""):
-            _set_span_attribute_compat(span, "gen_ai.system", "ollama")
-    except Exception:
-        # Never fail tracing/export because of attribute normalization.
-        pass
-
-
 def _set_genai_request_attributes(model_name: str) -> None:
     """Attach GenAI semantic attributes to the current span when available."""
     try:
@@ -408,9 +369,8 @@ def setup_weaviate_instrumentation():
 def _initialize_otlp_metrics(otlp_endpoint: str) -> None:
     """Set up an OTLP metrics pipeline and register global metric instruments.
 
-    The MeterProvider is created directly and instruments are obtained from it
-    without relying on the global set_meter_provider() call, which may have
-    already been locked by Traceloop SDK.
+    The MeterProvider is created directly and instruments are obtained from it,
+    without relying on the global set_meter_provider() call.
     """
     global _inference_duration, _inference_requests, _token_usage
     try:
@@ -424,8 +384,7 @@ def _initialize_otlp_metrics(otlp_endpoint: str) -> None:
         metric_exporter = OTLPMetricExporter(endpoint=metrics_endpoint, insecure=insecure)
         reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=15000)
         resource = Resource.create({"service.name": "ai-travel-advisor"})
-        # Create provider directly — do NOT call set_meter_provider() as Traceloop
-        # may have already locked the global provider slot (it prints "Metrics are disabled").
+        # Create the provider directly; instruments come from it, not from the global provider.
         meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
 
         meter = meter_provider.get_meter("ai-travel-advisor", "1.0.0")
@@ -450,65 +409,38 @@ def _initialize_otlp_metrics(otlp_endpoint: str) -> None:
 
 
 def initialize_opentelemetry():
-    """Initialize OpenTelemetry instrumentation if enabled"""
-    global workflow, task, _opentelemetry_initialized
+    """Initialize OpenTelemetry tracing, metrics and the instrumentations if enabled."""
+    global _opentelemetry_initialized
 
     if _opentelemetry_initialized:
         return
-    
-    openllmetry_enabled = os.getenv("OPENLLMETRY_ENABLED", "false").lower() == "true"
-    
-    if not openllmetry_enabled:
-        logger.info("OpenLLMetry instrumentation is disabled (OPENLLMETRY_ENABLED is not set to true)")
+
+    otel_enabled = os.getenv("OTEL_ENABLED", "false").lower() == "true"
+
+    if not otel_enabled:
+        logger.info("OpenTelemetry instrumentation is disabled (OTEL_ENABLED is not set to true)")
         return
-    
+
     try:
-        from traceloop.sdk import Traceloop
-        from traceloop.sdk.decorators import workflow as workflow_decorator, task as task_decorator
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-        
-        workflow = workflow_decorator
-        task = task_decorator
-        
         otlp_endpoint = os.getenv(
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
             os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
         )
         insecure = otlp_endpoint.startswith("http://")
-        logger.info(f"Initializing OpenLLMetry instrumentation with endpoint: {otlp_endpoint}")
+        logger.info(f"Initializing OpenTelemetry instrumentation with endpoint: {otlp_endpoint}")
 
-        # Use explicit OTLP exporter so traces are sent to the local collector.
-        trace_exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=insecure)
-
-        # Traceloop API changed across versions; support both variants.
-        if hasattr(Traceloop, "init"):
-            from traceloop.sdk.instruments import Instruments
-
-            ai_model = get_settings().ai_model
-            default_processor = Traceloop.get_default_span_processor(
-                exporter=trace_exporter,
-            )
-            model_attr_processor = _GenAIModelSpanProcessor(ai_model)
-            oi_kind_processor = _OpenInferenceKindSpanProcessor()
-            # LangChain/LangGraph spans come from OpenInference (below), so Traceloop's
-            # LangChain instrumentor is blocked to avoid a duplicate span tree.
-            # openinference.project.name groups traces into a project in Arize AX.
-            Traceloop.init(
-                app_name="ai-travel-advisor",
-                processor=[default_processor, model_attr_processor, oi_kind_processor],
-                block_instruments={Instruments.LANGCHAIN},
-                resource_attributes={"openinference.project.name": "ai-travel-advisor"},
-                span_postprocess_callback=lambda span: _normalize_genai_model_attributes(
-                    span,
-                    ai_model,
-                ),
-            )
-
-        else:
-            Traceloop.initialize(
-                app_name="ai-travel-advisor",
-                exporter_url=otlp_endpoint,
-            )
+        ai_model = get_settings().ai_model
+        setup_tracing(
+            otlp_endpoint=otlp_endpoint,
+            insecure=insecure,
+            service_name="ai-travel-advisor",
+            project_name="ai-travel-advisor",
+            span_processors=[
+                _GenAIModelSpanProcessor(ai_model),
+                _OpenInferenceKindSpanProcessor(),
+                ContextAttributesSpanProcessor(),
+            ],
+        )
 
         setup_openinference_instrumentation()
         setup_feature_flag_events(otlp_endpoint, insecure)
@@ -517,17 +449,14 @@ def initialize_opentelemetry():
         _initialize_otlp_metrics(otlp_endpoint)
         _opentelemetry_initialized = True
 
-        logger.info("OpenLLMetry instrumentation initialized successfully")
-    except ImportError:
-        logger.warning("Traceloop SDK not installed. Install with: pip install traceloop-sdk")
-        logger.warning("Continuing without OpenLLMetry instrumentation")
+        logger.info("OpenTelemetry instrumentation initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize OpenLLMetry: {e}")
-        logger.warning("Continuing without OpenLLMetry instrumentation")
+        logger.error(f"Failed to initialize OpenTelemetry: {e}")
+        logger.warning("Continuing without OpenTelemetry instrumentation")
 
 
-# Initialize OpenTelemetry during module import so decorators below bind correctly.
-# If disabled or initialization fails, the no-op decorators remain in place.
+# Initialize OpenTelemetry during module import, before the first request.
+# If disabled or initialization fails, the OpenTelemetry API's no-op tracer is used.
 initialize_opentelemetry()
 
 
@@ -714,14 +643,29 @@ async def status():
 
 
 # ==================== Travel Advisor Endpoints ====================
+def _session_context(session_id: str):
+    """OpenInference session context for one request.
+
+    The session id becomes `session.id` on every span (and `gen_ai.conversation.id` in Dynatrace).
+    """
+    try:
+        from openinference.instrumentation import using_session
+
+        return using_session(session_id.strip()[:128] or uuid.uuid4().hex)
+    except ImportError:
+        return nullcontext()
+
+
 @app.get("/api/v1/completion", tags=["Travel Advisor"])
-async def submit_completion(framework: str = "rag", prompt: str = "") -> JSONResponse:
+async def submit_completion(framework: str = "rag", prompt: str = "", session_id: str = "") -> JSONResponse:
     """
     Get travel advice using different frameworks.
     
     Args:
         framework: "llm" (direct LLM), "rag" (retrieval augmented), or "agentic"
         prompt: The destination or query
+        session_id: Optional conversation id; requests that share it are grouped as one
+            conversation in Arize AX and Dynatrace. A new id is generated when omitted.
         
     Returns:
         Travel advice response
@@ -735,18 +679,19 @@ async def submit_completion(framework: str = "rag", prompt: str = "") -> JSONRes
             )
         )
     
+    if framework not in ("llm", "rag", "agentic"):
+        return JSONResponse(
+            status_code=400,
+            content=format_error_response(f"Framework '{framework}' not supported. Use 'llm', 'rag', or 'agentic'.", 400)
+        )
+
     try:
-        if framework == "llm":
-            return await llm_advice(prompt)
-        elif framework == "rag":
-            return await rag_advice(prompt)
-        elif framework == "agentic":
+        with _session_context(session_id):
+            if framework == "llm":
+                return await llm_advice(prompt)
+            elif framework == "rag":
+                return await rag_advice(prompt)
             return await agentic_advice(prompt)
-        else:
-            return JSONResponse(
-                status_code=400,
-                content=format_error_response(f"Framework '{framework}' not supported. Use 'llm', 'rag', or 'agentic'.", 400)
-            )
     except Exception as e:
         logger.error(f"Error in completion endpoint: {e}")
         return JSONResponse(

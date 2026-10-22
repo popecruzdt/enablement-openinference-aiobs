@@ -2,7 +2,7 @@
 
 OpenInference's LangChain tracer starts a span per run but deliberately never attaches it as the
 current span. Spans created by app code inside a tool or LLM call (Weaviate, Ollama client) would
-otherwise be parented to whatever span is current (the Traceloop workflow span) instead of the
+otherwise be parented to whatever span is current (the workflow span) instead of the
 tool or LLM span they run in.
 
 `langchain_span_context()` finds the span of the LangChain run that is executing and activates it

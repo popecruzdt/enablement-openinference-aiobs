@@ -19,7 +19,6 @@ data:
   CHUNK_OVERLAP: "0"
   RETRIEVAL_K: "10"
   MIN_KB_OBJECTS: "450"
-  OPENLLMETRY_ENABLED: "true"
-  TRACELOOP_TRACE_CONTENT: "true"
+  OTEL_ENABLED: "true"
   OTEL_SERVICE_NAME: "ai-travel-advisor"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
