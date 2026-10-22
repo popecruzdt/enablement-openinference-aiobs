@@ -650,12 +650,12 @@ async def status():
 
 # ==================== Travel Advisor Endpoints ====================
 @app.get("/api/v1/completion", tags=["Travel Advisor"])
-async def submit_completion(framework: str = "rag", prompt: str = "", session_id: str = "") -> JSONResponse:
+async def submit_completion(framework: str = "agentic", prompt: str = "", session_id: str = "") -> JSONResponse:
     """
     Get travel advice using different frameworks.
     
     Args:
-        framework: "llm" (direct LLM), "rag" (retrieval augmented), or "agentic"
+        framework: "agentic" (default, LangGraph agent with tools), "rag" (retrieval augmented), or "llm" (direct LLM)
         prompt: The destination or query
         session_id: Optional conversation id; requests that share it are grouped as one
             conversation in Arize AX and Dynatrace. A new id is generated when omitted.
