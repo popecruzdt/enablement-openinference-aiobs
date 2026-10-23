@@ -1,6 +1,7 @@
 """`@workflow`: wrap a function in a CHAIN span named `<name>.workflow`.
 
-The span records the call arguments as `input.value` and the result as `output.value`
+The span records the request as `input.value` and the answer as `output.value` (plain text when the
+call has a single text argument and returns a response with a `message`; JSON otherwise)
 and is the parent of the LangChain/LangGraph, Weaviate and Ollama spans created inside it.
 With no tracer provider configured (OTEL_ENABLED is not true) the OpenTelemetry API
 returns a no-op tracer, so the decorator is harmless.
@@ -34,8 +35,14 @@ def _to_text(value: Any) -> str:
 
 
 def _record_input(span: trace.Span, args: tuple, kwargs: dict) -> None:
+    """`input.value` is the user's text for a call like `workflow("Atlanta")`, else the arguments as JSON."""
     try:
-        if span.is_recording():
+        if not span.is_recording():
+            return
+        if len(args) == 1 and not kwargs and isinstance(args[0], str):
+            span.set_attribute("input.value", args[0])
+            span.set_attribute("input.mime_type", "text/plain")
+        else:
             span.set_attribute("input.value", _to_text({"args": list(args), "kwargs": kwargs}))
             span.set_attribute("input.mime_type", "application/json")
     except Exception:
@@ -43,9 +50,23 @@ def _record_input(span: trace.Span, args: tuple, kwargs: dict) -> None:
 
 
 def _record_output(span: trace.Span, result: Any) -> None:
+    """`output.value` is the `message` of a response like `{"message": "...", "status": ...}`, else the whole result."""
     try:
-        if span.is_recording():
-            span.set_attribute("output.value", _to_text(result))
+        if not span.is_recording():
+            return
+        text = _to_text(result)
+        mime_type = "text/plain"
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("message"), str):
+                text = parsed["message"]
+            else:
+                mime_type = "application/json"
+        span.set_attribute("output.value", text)
+        span.set_attribute("output.mime_type", mime_type)
     except Exception:
         pass
 
