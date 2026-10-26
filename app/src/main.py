@@ -10,8 +10,7 @@ import os
 import logging
 import re
 import time
-import uuid
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import ollama
@@ -25,7 +24,14 @@ from opentelemetry.sdk.trace import SpanProcessor
 from src.config import get_settings
 from src.utils import setup_logging, format_rag_response, format_error_response
 from src.rag import get_rag_pipeline
-from src.telemetry import ContextAttributesSpanProcessor, instrument_ollama_middle_span, setup_tracing, workflow
+from src.telemetry import (
+    ContextAttributesSpanProcessor,
+    instrument_ollama_middle_span,
+    prompt_template_context,
+    request_context,
+    setup_tracing,
+    workflow,
+)
 from src.telemetry.feature_flag_events import setup_feature_flag_events
 from src.agent import (
     build_agent_graph,
@@ -643,26 +649,13 @@ async def status():
 
 
 # ==================== Travel Advisor Endpoints ====================
-def _session_context(session_id: str):
-    """OpenInference session context for one request.
-
-    The session id becomes `session.id` on every span (and `gen_ai.conversation.id` in Dynatrace).
-    """
-    try:
-        from openinference.instrumentation import using_session
-
-        return using_session(session_id.strip()[:128] or uuid.uuid4().hex)
-    except ImportError:
-        return nullcontext()
-
-
 @app.get("/api/v1/completion", tags=["Travel Advisor"])
-async def submit_completion(framework: str = "rag", prompt: str = "", session_id: str = "") -> JSONResponse:
+async def submit_completion(framework: str = "agentic", prompt: str = "", session_id: str = "") -> JSONResponse:
     """
     Get travel advice using different frameworks.
     
     Args:
-        framework: "llm" (direct LLM), "rag" (retrieval augmented), or "agentic"
+        framework: "agentic" (default, LangGraph agent with tools), "rag" (retrieval augmented), or "llm" (direct LLM)
         prompt: The destination or query
         session_id: Optional conversation id; requests that share it are grouped as one
             conversation in Arize AX and Dynatrace. A new id is generated when omitted.
@@ -686,7 +679,7 @@ async def submit_completion(framework: str = "rag", prompt: str = "", session_id
         )
 
     try:
-        with _session_context(session_id):
+        with request_context(session_id):
             if framework == "llm":
                 return await llm_advice(prompt)
             elif framework == "rag":
@@ -698,6 +691,10 @@ async def submit_completion(framework: str = "rag", prompt: str = "", session_id
             status_code=500,
             content=format_error_response(str(e), 500)
         )
+
+
+# Template of the direct (llm) mode; recorded on the LLM span with its variables.
+LLM_ADVICE_PROMPT_TEMPLATE = "Give travel advice in a paragraph of max 50 words about {destination}"
 
 
 @workflow(name="llm_advice_workflow")
@@ -712,7 +709,7 @@ async def llm_advice(destination: str) -> JSONResponse:
         )
     
     try:
-        prompt = f"Give travel advice in a paragraph of max 50 words about {destination}"
+        prompt = LLM_ADVICE_PROMPT_TEMPLATE.format(destination=destination)
         _set_genai_request_attributes(get_settings().ai_model)
 
         if AppState.direct_chat_model is None:
@@ -727,9 +724,13 @@ async def llm_advice(destination: str) -> JSONResponse:
         # Offload synchronous LangChain/Ollama call to a worker thread so
         # the event loop can continue serving health checks and other requests.
         current_context = contextvars.copy_context()
-        response = await asyncio.to_thread(
-            lambda: current_context.run(AppState.direct_chat_model.invoke, prompt)
-        )
+
+        def _invoke_with_prompt_template():
+            # Entered inside the copied context so the template reaches the LLM span started in this thread.
+            with prompt_template_context(LLM_ADVICE_PROMPT_TEMPLATE, {"destination": destination}):
+                return AppState.direct_chat_model.invoke(prompt)
+
+        response = await asyncio.to_thread(lambda: current_context.run(_invoke_with_prompt_template))
         _elapsed = time.monotonic() - _t0
         advice = response.content if hasattr(response, "content") else str(response)
 

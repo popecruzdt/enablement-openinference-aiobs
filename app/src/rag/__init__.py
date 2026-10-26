@@ -23,6 +23,7 @@ from weaviate.config import AdditionalConfig, Timeout
 from src.config import get_settings
 from src.feature_flags import get_embedding_override, set_embedding_override
 from src.telemetry.langchain_context import langchain_span_context
+from src.telemetry.prompts import prompt_template_context
 
 logger = logging.getLogger(__name__)
 
@@ -578,7 +579,8 @@ class RAGPipeline:
 
             logger.info(f"Invoking LLM with {len(prompt)} character prompt...")
             _set_genai_request_attributes(self.settings.ai_model)
-            response = self.llm.invoke(prompt)
+            with prompt_template_context(prompt_template, {"context": context, "destination": destination}):
+                response = self.llm.invoke(prompt)
             logger.info(f"LLM returned successfully")
             logger.info("Response used RAG: true")
             return response.content if hasattr(response, "content") else str(response)
