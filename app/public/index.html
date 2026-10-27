@@ -506,9 +506,10 @@
       <!-- Info Section -->
       <div class="info-section">
         <p><strong>ℹ️ About this application:</strong></p>
-        <p>This AI Travel Advisor uses local language models (Ollama) and vector databases (Weaviate) to provide travel recommendations with zero external service dependencies. Your data stays local!</p>
+        <p>This AI Travel Advisor uses local language models (Ollama) and vector databases (Weaviate) to provide travel recommendations with zero external service dependencies.</p>
         <p><strong>Frameworks available:</strong> Direct LLM, RAG (Retrieval-Augmented Generation), and Agentic (a LangGraph agent with tools).</p>
-        <p><strong>Destination content source:</strong> Destination files are read from the host-mounted <code>destinations</code> directory when the application starts or when the KB is rebuilt.</p>
+        <p><strong>Destination content source:</strong> Destination files from the <code>destinations</code> directory are loaded into the Weaviate knowledge base (KB) when the KB is built or rebuilt.</p>
+        <p><strong>Observability:</strong> Instrumented with OpenInference/OpenTelemetry, with signals sent to Arize AX and Dynatrace.</p>
       </div>
     </div>
 
