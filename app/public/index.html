@@ -27,7 +27,7 @@
     .header-section {
       height: 65px;
       display: flex;
-      justify-content: flex-start;
+      justify-content: space-between;
       align-items: center;
       padding: 0 20px;
       background: #fff;
@@ -39,6 +39,62 @@
       display: flex;
       align-items: center;
       gap: 16px;
+    }
+
+    /* Optional sign-in (top right) */
+    .auth-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: #243b53;
+    }
+
+    .auth-area form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+    }
+
+    .auth-area input[type="text"] {
+      width: 140px;
+      padding: 6px 10px;
+      border: 1px solid #c9d1d9;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .auth-area button {
+      padding: 6px 14px;
+      border: 1px solid #64c07a;
+      border-radius: 6px;
+      background: #fff;
+      color: #2e7d32;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .auth-area button.primary {
+      background: #64c07a;
+      color: #fff;
+    }
+
+    .auth-area button:hover {
+      background: #e8f5e9;
+    }
+
+    .auth-area button.primary:hover {
+      background: #5aab6d;
+    }
+
+    .auth-error {
+      color: #c62828;
+      font-size: 13px;
+    }
+
+    .auth-user {
+      font-weight: 600;
     }
 
     .brand-logo {
@@ -439,6 +495,7 @@
         <img class="brand-logo" src="images/dynatrace-logo.png" alt="Dynatrace logo">
         <img class="brand-logo" src="images/arize-logo.png" alt="Arize logo">
       </div>
+      <div class="auth-area" id="authArea"></div>
     </header>
 
     <!-- Hero Section -->
@@ -533,6 +590,106 @@
       }
       return id;
     }
+    // Optional sign-in: the id is kept per tab, like the session id. Signed out means anonymous (no user_id is sent).
+    // A new session id is started on every sign-in and sign-out, so a session belongs to one user.
+    function getUserId() {
+      return sessionStorage.getItem('travelAdvisorUserId') || '';
+    }
+
+    function setUserId(id) {
+      if (id) {
+        sessionStorage.setItem('travelAdvisorUserId', id);
+      } else {
+        sessionStorage.removeItem('travelAdvisorUserId');
+      }
+      sessionStorage.removeItem('travelAdvisorSessionId');
+      renderAuth();
+    }
+
+    function renderAuth(showForm = false, errorText = '') {
+      const area = document.getElementById('authArea');
+      const userId = getUserId();
+      area.textContent = '';
+      if (userId) {
+        const name = document.createElement('span');
+        name.className = 'auth-user';
+        name.textContent = userId;
+        const signOut = document.createElement('button');
+        signOut.type = 'button';
+        signOut.textContent = 'Sign Out';
+        signOut.addEventListener('click', () => setUserId(''));
+        area.append(name, signOut);
+        return;
+      }
+      if (!showForm) {
+        const signIn = document.createElement('button');
+        signIn.type = 'button';
+        signIn.textContent = 'Sign In';
+        signIn.addEventListener('click', () => renderAuth(true));
+        area.append(signIn);
+        return;
+      }
+      const form = document.createElement('form');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = 64;
+      input.placeholder = 'user id';
+      input.autocomplete = 'off';
+      input.setAttribute('aria-label', 'User id');
+      const go = document.createElement('button');
+      go.type = 'submit';
+      go.className = 'primary';
+      go.textContent = 'Sign In';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', () => renderAuth());
+      const error = document.createElement('span');
+      error.className = 'auth-error';
+      error.setAttribute('role', 'alert');
+      error.textContent = errorText;
+      form.append(input, go, cancel);
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const id = await validateUserId(input.value);
+        if (id) {
+          setUserId(id);
+        } else {
+          renderAuth(true, 'Unknown user id');
+        }
+      });
+      area.append(form, error);
+      input.focus();
+      input.addEventListener('keydown', (event) => { if (event.key === 'Escape') renderAuth(); });
+    }
+
+    // Returns the id as written in the allowed list, or '' when it is not allowed.
+    async function validateUserId(candidate) {
+      const id = candidate.trim();
+      if (!id) return '';
+      try {
+        const response = await fetch(`${API_ENDPOINT}/signin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: id })
+        });
+        if (!response.ok) return '';
+        return (await response.json()).user_id || '';
+      } catch (error) {
+        return '';
+      }
+    }
+
+    // A user id kept from earlier in this tab is checked again (it may have been removed from the list since).
+    async function restoreSignIn() {
+      const stored = getUserId();
+      if (stored && !(await validateUserId(stored))) {
+        setUserId('');
+      } else {
+        renderAuth();
+      }
+    }
+
     const MAX_PROMPT_LENGTH = 50;
     let lastSearchTerm = '';
 
@@ -605,6 +762,7 @@
     setInterval(checkServiceStatus, 30000); // Every 30 seconds
     updateModeHint();
     document.getElementById('framework').addEventListener('change', updateModeHint);
+    restoreSignIn();
 
     // ==================== Form Submission ====================
     document.getElementById('advisorForm').addEventListener('submit', async function(event) {
@@ -634,7 +792,7 @@
       clearError();
 
       try {
-        const response = await fetch(`${API_ENDPOINT}/completion?framework=${encodeURIComponent(framework)}&prompt=${encodeURIComponent(prompt)}&session_id=${encodeURIComponent(getSessionId())}`);
+        const response = await fetch(`${API_ENDPOINT}/completion?framework=${encodeURIComponent(framework)}&prompt=${encodeURIComponent(prompt)}&session_id=${encodeURIComponent(getSessionId())}${getUserId() ? `&user_id=${encodeURIComponent(getUserId())}` : ''}`);
         const contentType = response.headers.get('content-type') || '';
         let data = null;
 

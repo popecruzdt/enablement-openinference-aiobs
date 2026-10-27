@@ -14,7 +14,7 @@ import uuid
 from contextlib import nullcontext
 from typing import Any, Dict, Optional
 
-# There is no login: every request is attributed to the same user.
+# The user id of a request that is not signed in (sign-in is optional, see src/users.py).
 ANONYMOUS_USER_ID = "anonymous"
 
 # A variable value (for example the retrieved RAG context) is capped so that a larger CHUNK_SIZE or
@@ -48,14 +48,14 @@ def prompt_template_context(template: str, variables: Optional[Dict[str, Any]] =
         return nullcontext()
 
 
-def request_context(session_id: str = ""):
-    """Context manager for one request: session id (generated when empty) and the anonymous user id."""
+def request_context(session_id: str = "", user_id: str = ANONYMOUS_USER_ID):
+    """Context manager for one request: session id (generated when empty) and the user id."""
     try:
         from openinference.instrumentation import using_attributes
 
         return using_attributes(
             session_id=session_id.strip()[:128] or uuid.uuid4().hex,
-            user_id=ANONYMOUS_USER_ID,
+            user_id=user_id or ANONYMOUS_USER_ID,
         )
     except ImportError:
         return nullcontext()

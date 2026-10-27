@@ -18,10 +18,12 @@ from langchain_ollama.chat_models import ChatOllama
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 import uvicorn
 from opentelemetry.sdk.trace import SpanProcessor
 
 from src.config import get_settings
+from src.users import UserDirectory, resolve_request_user
 from src.utils import setup_logging, format_rag_response, format_error_response
 from src.rag import get_rag_pipeline
 from src.telemetry import (
@@ -648,9 +650,37 @@ async def status():
     })
 
 
+# ==================== Sign-in (optional) ====================
+_user_directory: Optional[UserDirectory] = None
+
+
+def get_user_directory() -> UserDirectory:
+    global _user_directory
+    if _user_directory is None:
+        _user_directory = UserDirectory(get_settings().users_path)
+    return _user_directory
+
+
+class SignInRequest(BaseModel):
+    user_id: str = ""
+
+
+@app.post("/api/v1/signin", tags=["Travel Advisor"])
+async def sign_in(body: SignInRequest) -> JSONResponse:
+    """Check that a user id is on the allowed list. There is no password: the id only has to exist.
+
+    Returns the id as it is written in the list. The browser keeps it for the tab and sends it as
+    `user_id` on later requests, where it is checked again.
+    """
+    resolved = get_user_directory().resolve(body.user_id)
+    if resolved is None:
+        return JSONResponse(status_code=404, content=format_error_response("Unknown user id", 404))
+    return JSONResponse(content={"user_id": resolved})
+
+
 # ==================== Travel Advisor Endpoints ====================
 @app.get("/api/v1/completion", tags=["Travel Advisor"])
-async def submit_completion(framework: str = "agentic", prompt: str = "", session_id: str = "") -> JSONResponse:
+async def submit_completion(framework: str = "agentic", prompt: str = "", session_id: str = "", user_id: str = "") -> JSONResponse:
     """
     Get travel advice using different frameworks.
     
@@ -659,6 +689,8 @@ async def submit_completion(framework: str = "agentic", prompt: str = "", sessio
         prompt: The destination or query
         session_id: Optional conversation id; requests that share it are grouped as one
             conversation in Arize AX and Dynatrace. A new id is generated when omitted.
+        user_id: Optional signed-in user id. It must be on the allowed list (users.txt); anything
+            else is recorded as "anonymous".
         
     Returns:
         Travel advice response
@@ -679,7 +711,7 @@ async def submit_completion(framework: str = "agentic", prompt: str = "", sessio
         )
 
     try:
-        with request_context(session_id):
+        with request_context(session_id, resolve_request_user(get_user_directory(), user_id)):
             if framework == "llm":
                 return await llm_advice(prompt)
             elif framework == "rag":
