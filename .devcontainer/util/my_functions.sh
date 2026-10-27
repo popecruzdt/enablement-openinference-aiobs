@@ -28,6 +28,7 @@ TRAVEL_ADVISOR_NS="ai-travel-advisor"
 deployTravelAdvisor() {
   local k8s_dir="${REPO_PATH:-$(pwd)}/app/k8s"
   local prompts_dir="${REPO_PATH:-$(pwd)}/app/prompts"
+  local destinations_dir="${REPO_PATH:-$(pwd)}/app/destinations"
 
   printInfoSection "Deploying AI Travel Advisor stack"
 
@@ -70,6 +71,9 @@ deployTravelAdvisor() {
   # Prompts are a ConfigMap so lab steps can edit them (then restart travel-advisor).
   kubectl -n "$TRAVEL_ADVISOR_NS" create configmap travel-advisor-prompts \
     --from-file="$prompts_dir" --dry-run=client -o yaml | kubectl apply -f -
+  # Destination pages are a ConfigMap too (no image rebuild to change them); see reloadDestinations to apply edits later.
+  kubectl -n "$TRAVEL_ADVISOR_NS" create configmap travel-advisor-destinations \
+    --from-file="$destinations_dir" --dry-run=client -o yaml | kubectl apply -f -
 
   printInfo "Deploying Ollama and pulling models"
   # The volume is applied only when it does not exist: its size cannot change afterwards (local-path), and re-applying a new size errors.
@@ -144,6 +148,27 @@ changeAiModel() {
   kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m \
     || { printError "travel-advisor did not become ready with $model: check 'kubectl -n $TRAVEL_ADVISOR_NS logs deploy/travel-advisor'"; return 1; }
   printInfo "The chat model is now $model"
+}
+
+# Applies edited destination pages (app/destinations/*.html) to the running AI Travel Advisor, without a new image.
+#   reloadDestinations
+# It refreshes the travel-advisor-destinations ConfigMap, then restarts travel-advisor once with FORCE_REINDEX=true
+# so the knowledge base is rebuilt from the new pages (a plain restart skips indexing when the KB is already populated),
+# and restarts it again without FORCE_REINDEX so later restarts do not rebuild the KB. It takes a few minutes.
+reloadDestinations() {
+  local destinations_dir="${REPO_PATH:-$(pwd)}/app/destinations"
+  if ! kubectl -n "$TRAVEL_ADVISOR_NS" get deploy travel-advisor >/dev/null 2>&1; then
+    printError "travel-advisor is not deployed: run deployTravelAdvisor first"; return 1
+  fi
+  printInfoSection "Reloading destination pages from $destinations_dir"
+  kubectl -n "$TRAVEL_ADVISOR_NS" create configmap travel-advisor-destinations \
+    --from-file="$destinations_dir" --dry-run=client -o yaml | kubectl apply -f - || return 1
+  kubectl -n "$TRAVEL_ADVISOR_NS" set env deploy/travel-advisor FORCE_REINDEX=true || return 1
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m \
+    || { printError "travel-advisor did not become ready while reindexing: check 'kubectl -n $TRAVEL_ADVISOR_NS logs deploy/travel-advisor'"; return 1; }
+  kubectl -n "$TRAVEL_ADVISOR_NS" set env deploy/travel-advisor FORCE_REINDEX- || return 1
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m || return 1
+  printInfo "Destination pages reloaded and the knowledge base rebuilt"
 }
 
 undeployTravelAdvisor() {

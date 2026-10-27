@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "50"))
     retrieval_k: int = int(os.getenv("RETRIEVAL_K", "3"))
     force_reindex: bool = os.getenv("FORCE_REINDEX", "false").lower() == "true"
-    min_kb_objects: int = int(os.getenv("MIN_KB_OBJECTS", "450"))
+    min_kb_objects: int = int(os.getenv("MIN_KB_OBJECTS", "250"))
 
     # Agentic Workflow Configuration
     agent_max_steps: int = int(os.getenv("AGENT_MAX_STEPS", "8"))

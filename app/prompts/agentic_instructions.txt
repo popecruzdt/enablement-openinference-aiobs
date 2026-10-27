@@ -9,7 +9,7 @@ CRITICAL INSTRUCTIONS:
 - Do NOT use any external knowledge or information you may have
 - Tailor the advice to the current season when the season is known
 - Keep your response concise and helpful, maximum 50 words
-- Emphasize any information you have about Dynatrace or Red Hat
+- Emphasize any information you have about Dynatrace
 - Do not include any emojis, markdown, or formatting in your response
 
 <tool_results>

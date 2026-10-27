@@ -55,7 +55,7 @@ Key files and directories:
 - `src/telemetry/`: custom Ollama span instrumentation and OpenInference-to-GenAI attribute mapping.
 - `src/utils/__init__.py`: logging configuration and API response formatting.
 - `public/index.html`: browser UI.
-- `destinations/`: HTML source documents for the RAG knowledge base.
+- `destinations/`: HTML source documents for the RAG knowledge base. They are not baked into the image: Kubernetes mounts them from the `travel-advisor-destinations` ConfigMap, compose bind-mounts the directory.
 - `prompts/rag_instructions.txt`: prompt template used for RAG answers.
 - `prompts/agentic_instructions.txt`: agent system prompt and final-answer prompt for agentic mode.
 - `nginx/default.conf`: reverse proxy for the compose deployment.
@@ -117,7 +117,7 @@ That means you can change response behavior without editing Python code by updat
 - `prompts/agentic_instructions.txt`
 - the destination HTML files in `destinations/`
 
-After changing destination files, rebuild the knowledge base with `/api/v1/prepare-kb` or restart the app with `FORCE_REINDEX=true`.
+After changing destination files, rebuild the knowledge base with `/api/v1/prepare-kb` or restart the app with `FORCE_REINDEX=true`. On Kubernetes, run `reloadDestinations` (from `.devcontainer/util/my_functions.sh`): it refreshes the `travel-advisor-destinations` ConfigMap from `app/destinations/`, restarts the app once with `FORCE_REINDEX=true` and once without. No new image is needed. The known-destination list used by the agent is read at startup, so a restart is required in any case.
 
 ## Runtime Control Surfaces
 
@@ -257,7 +257,7 @@ The `Containerfile` builds a self-contained Python 3.13 image that:
 - installs the Python dependencies from `requirements.txt`
 - copies `src/`, `public/`, and `prompts/`
 - copies `.env.example` to `.env` as the image default
-- creates `/app/destinations`
+- creates an empty `/app/destinations` (the pages are mounted, not copied)
 - runs the process as a non-root user
 
 Because the image bakes in `.env.example`, compose environment variables and bind mounts become the main override layers when running locally with Podman Compose.
