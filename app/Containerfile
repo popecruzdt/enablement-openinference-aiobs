@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY public/ ./public/
 COPY prompts/ ./prompts/
-COPY destinations/ ./destinations/
+# Destination pages are not part of the image: mount them at /app/destinations (a ConfigMap on Kubernetes, a bind mount in compose).
+RUN mkdir -p /app/destinations
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

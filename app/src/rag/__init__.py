@@ -20,6 +20,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.config import AdditionalConfig, Timeout
 
+from src.agent.tools import normalize_destination
 from src.config import get_settings
 from src.feature_flags import get_embedding_override, set_embedding_override
 from src.telemetry.langchain_context import langchain_span_context
@@ -144,29 +145,20 @@ class RAGPipeline:
         return "\n\n".join(doc.page_content for doc in docs)
 
     def _select_best_exact_match(self, destination: str, objects) -> Optional[str]:
-        """Select the best exact-match context for a destination query."""
-        normalized_destination = destination.strip().lower()
+        """Join the chunks of the destination's own page, or None when it has no page."""
+        wanted_title = normalize_destination(destination)
 
-        # First preference: collect ALL chunks where title exactly matches destination
+        # Only chunks whose title (the page's file name) is the destination count: another
+        # page that merely mentions the destination in its text must not answer for it.
         texts = []
         for obj in objects:
             props = obj.properties or {}
             title = (props.get("title") or "").strip().lower()
             text = props.get("text") or ""
-            if title == normalized_destination and text:
+            if title == wanted_title and text:
                 texts.append(text)
 
-        if texts:
-            return "\n\n".join(texts)
-
-        # Second preference: destination term appears in document text.
-        for obj in objects:
-            props = obj.properties or {}
-            text = props.get("text") or ""
-            if normalized_destination in text.lower() and text:
-                return text
-
-        return None
+        return "\n\n".join(texts) if texts else None
 
     def _set_weaviate_common_attributes(
         self,
@@ -447,10 +439,9 @@ class RAGPipeline:
                             span.set_attribute("weaviate.result.score.max", round(max(bm25_scores), 6))
                             span.set_attribute("weaviate.result.score.min", round(min(bm25_scores), 6))
                             span.set_attribute("weaviate.result.score.avg", round(sum(bm25_scores) / len(bm25_scores), 6))
-                    normalized_destination = destination.strip().lower()
+                    wanted_title = normalize_destination(destination)
                     destination_found_in_collection = any(
-                        ((obj.properties or {}).get("title", "").strip().lower() == normalized_destination)
-                        or (normalized_destination in ((obj.properties or {}).get("text", "").lower()))
+                        (obj.properties or {}).get("title", "").strip().lower() == wanted_title
                         for obj in exact_results.objects
                     )
                     logger.info(f"Destination found in collection: {destination_found_in_collection}")
