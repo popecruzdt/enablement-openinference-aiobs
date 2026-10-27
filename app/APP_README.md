@@ -55,6 +55,7 @@ Key files and directories:
 - `src/telemetry/`: custom Ollama span instrumentation and OpenInference-to-GenAI attribute mapping.
 - `src/utils/__init__.py`: logging configuration and API response formatting.
 - `public/index.html`: browser UI.
+- `users/users.txt`: the user ids that may sign in (see Sign-in).
 - `destinations/`: HTML source documents for the RAG knowledge base. They are not baked into the image: Kubernetes mounts them from the `travel-advisor-destinations` ConfigMap, compose bind-mounts the directory.
 - `prompts/rag_instructions.txt`: prompt template used for RAG answers.
 - `prompts/agentic_instructions.txt`: agent system prompt and final-answer prompt for agentic mode.
@@ -71,7 +72,8 @@ Primary endpoints:
 
 - `GET /health`: liveness summary plus Ollama and Weaviate connectivity state.
 - `GET /api/v1/status`: current model and retrieval settings.
-- `GET /api/v1/completion`: response generation entry point.
+- `GET /api/v1/completion`: response generation entry point. Optional `session_id` and `user_id` query parameters (see Sign-in below).
+- `POST /api/v1/signin`: body `{"user_id": "..."}`; 200 with the id as listed, or 404 `Unknown user id`.
 - `GET /api/v1/prepare-kb`: rebuild the knowledge base from `destinations/`.
 - `GET /api/v1/set-embedding-model`: set an in-memory embedding override used for drift simulation.
 - `GET /api/v1/thumbsUp` and `GET /api/v1/thumbsDown`: lightweight feedback logging endpoints.
@@ -185,7 +187,7 @@ Instrumentation sources when `OTEL_ENABLED=true`:
 - LangChain and LangGraph spans (LLM calls, the `travel_agent` graph, its nodes and tools) come from OpenInference (`openinference-instrumentation-langchain`).
 - The OpenTelemetry SDK sets up the tracer provider and OTLP exporter (`src/telemetry/setup.py`). The `@workflow` decorator (`src/telemetry/workflows.py`) creates the `llm_advice_workflow`, `rag_advice_workflow` and `agentic_advice_workflow` spans as CHAIN spans. `input.value` is the user's text and `output.value` is the answer's `message`, both `text/plain`; a call with several arguments, or a result without a `message`, is recorded as JSON.
 - The manual Weaviate spans have no OpenInference kind of their own, so `_OpenInferenceKindSpanProcessor` sets `openinference.span.kind` when they start: `CHAIN` for Weaviate operations, `RETRIEVER` for Weaviate queries. Without it, Arize AX shows these spans with kind `unknown`. The `@workflow` spans set their own kind. The tag reaches Arize through the OpenTelemetry export; OneAgent captures spans before it is set, so Dynatrace does not see it.
-- Each `/api/v1/completion` request runs in an OpenInference context (`request_context`, `src/telemetry/prompts.py`) that records a session id and a user id on every span. The session id is the optional `session_id` query parameter (the page sends one id per browser tab, so questions asked in one tab are one conversation) or a generated id when omitted. There is no login, so the user id is always `anonymous` (`ANONYMOUS_USER_ID`). They appear as `session.id` and `user.id` in Arize AX, and `session.id` becomes `gen_ai.conversation.id` in Dynatrace. `ContextAttributesSpanProcessor` (`src/telemetry/context_attributes.py`) copies only these two attributes onto the app's manual spans.
+- Each `/api/v1/completion` request runs in an OpenInference context (`request_context`, `src/telemetry/prompts.py`) that records a session id and a user id on every span. The session id is the optional `session_id` query parameter (the page sends one id per browser tab, so questions asked in one tab are one conversation) or a generated id when omitted. The user id is `anonymous` (`ANONYMOUS_USER_ID`) unless the request carries a `user_id` that is on the allowed list (see Sign-in); any other `user_id` is recorded as `anonymous`. They appear as `session.id` and `user.id` in Arize AX, and `session.id` becomes `gen_ai.conversation.id` in Dynatrace. `ContextAttributesSpanProcessor` (`src/telemetry/context_attributes.py`) copies only these two attributes onto the app's manual spans.
 - Prompt templates: every LLM call is wrapped in `prompt_template_context(template, variables)`, which records `llm.prompt_template.template`, `.variables` and `.version` on the LLM span so Arize AX can show the template next to the rendered prompt. The template is the raw text (the `rag_instructions.txt` file, the `SYSTEM` and `RESPOND` sections of `agentic_instructions.txt`, and the direct-mode template in `main.py`). The version is the first 8 characters of the SHA-256 of the template text, so editing a prompt gives it a new version. A variable value (for example the retrieved RAG context) is capped at 8,000 characters. The agent `SYSTEM` prompt has no variables.
 - OpenInference does not make its LangChain/LangGraph spans the current OpenTelemetry span, so spans created inside a tool or LLM call would be parented to the workflow span. `langchain_span_context()` (`src/telemetry/langchain_context.py`) activates the running tool or node span around KB retrieval (`RAGPipeline.retrieve_context`) and the `ollama.client.request` span, so the `weaviate.*` spans nest under `search_destination_kb`. If the span cannot be found, behavior falls back to the previous nesting. Spans captured natively by OneAgent (`weaviate.v1.Weaviate/*`, `POST`) are parented by OneAgent and stay under the request span.
 - The OpenTelemetry HTTPX auto-instrumentation is not enabled. Weaviate queries use gRPC (covered by the gRPC client instrumentation), and HTTPX `POST` spans for Ollama `/api/chat` only duplicated the `ChatOllama` and `ollama.client.request` spans. As a result there are no OTel spans for the Weaviate startup REST calls or the embedding-drift `/api/embed` call. OneAgent still captures its own native `POST` span for Ollama calls.
@@ -311,3 +313,12 @@ podman logs weaviate
 
 - `PODMAN_COMPOSE_SETUP.md`: step-by-step compose setup and lifecycle commands.
 - `.env.example`: current example environment file for manual host-based runs.
+
+## Sign-in (optional)
+
+The page has a **Sign In** button (top right). Without signing in, every request is recorded with `user.id = anonymous`. There is no password: an id is accepted only if it is listed in `users/users.txt` (one id per line, `#` comments, matching ignores case), so arbitrary names never reach the traces. This identifies a user, it does not authenticate one.
+
+- The page keeps the signed-in id per browser tab (like the session id) and sends it as `user_id` on `/api/v1/completion`. The server checks it against the list on every request, so a hand-made request with an unlisted id runs as `anonymous` too.
+- Signing in or out starts a new session id, so one session never mixes users.
+- To change who can sign in: edit `app/users/users.txt`, then run `reloadUsers` (`.devcontainer/util/my_functions.sh`). It refreshes the `travel-advisor-users` ConfigMap; the app re-reads the file when it changes (Kubernetes can take up to a minute to refresh the mount). No restart or new image is needed. Without a mounted list nobody can sign in.
+- Tests for the list logic: `python3 -m unittest discover -s tests` from `app/`.

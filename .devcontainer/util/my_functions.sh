@@ -29,6 +29,7 @@ deployTravelAdvisor() {
   local k8s_dir="${REPO_PATH:-$(pwd)}/app/k8s"
   local prompts_dir="${REPO_PATH:-$(pwd)}/app/prompts"
   local destinations_dir="${REPO_PATH:-$(pwd)}/app/destinations"
+  local users_dir="${REPO_PATH:-$(pwd)}/app/users"
 
   printInfoSection "Deploying AI Travel Advisor stack"
 
@@ -74,6 +75,9 @@ deployTravelAdvisor() {
   # Destination pages are a ConfigMap too (no image rebuild to change them); see reloadDestinations to apply edits later.
   kubectl -n "$TRAVEL_ADVISOR_NS" create configmap travel-advisor-destinations \
     --from-file="$destinations_dir" --dry-run=client -o yaml | kubectl apply -f -
+  # The list of user ids allowed to sign in; see reloadUsers to apply edits later.
+  kubectl -n "$TRAVEL_ADVISOR_NS" create configmap travel-advisor-users \
+    --from-file="$users_dir" --dry-run=client -o yaml | kubectl apply -f -
 
   printInfo "Deploying Ollama and pulling models"
   # The volume is applied only when it does not exist: its size cannot change afterwards (local-path), and re-applying a new size errors.
@@ -169,6 +173,16 @@ reloadDestinations() {
   kubectl -n "$TRAVEL_ADVISOR_NS" set env deploy/travel-advisor FORCE_REINDEX- || return 1
   kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m || return 1
   printInfo "Destination pages reloaded and the knowledge base rebuilt"
+}
+
+# Applies an edited user list (app/users/users.txt) to the running AI Travel Advisor, without a restart or a new image.
+#   reloadUsers
+# The app re-reads the list when the file changes; Kubernetes can take up to a minute to refresh the mounted ConfigMap.
+reloadUsers() {
+  local users_dir="${REPO_PATH:-$(pwd)}/app/users"
+  kubectl -n "$TRAVEL_ADVISOR_NS" create configmap travel-advisor-users \
+    --from-file="$users_dir" --dry-run=client -o yaml | kubectl apply -f - || return 1
+  printInfo "User list updated; sign-ins pick it up within about a minute"
 }
 
 undeployTravelAdvisor() {

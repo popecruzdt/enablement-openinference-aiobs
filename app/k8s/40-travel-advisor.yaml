@@ -37,7 +37,7 @@ spec:
               done
       containers:
         - name: travel-advisor
-          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.4.0
+          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -73,6 +73,9 @@ spec:
             - name: destinations
               mountPath: /app/destinations
               readOnly: true
+            - name: users
+              mountPath: /app/users
+              readOnly: true
       volumes:
         - name: prompts
           configMap:
@@ -80,6 +83,9 @@ spec:
         - name: destinations
           configMap:
             name: travel-advisor-destinations
+        - name: users
+          configMap:
+            name: travel-advisor-users
 ---
 apiVersion: v1
 kind: Service

@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Application Paths
     destinations_path: str = os.getenv("DESTINATIONS_PATH", "destinations")
     public_path: str = os.getenv("PUBLIC_PATH", "public")
+    users_path: str = os.getenv("USERS_PATH", "users")
     rag_prompt_path: str = os.getenv("RAG_PROMPT_PATH", "prompts/rag_instructions.txt")
     agentic_prompt_path: str = os.getenv("AGENTIC_PROMPT_PATH", "prompts/agentic_instructions.txt")
 
