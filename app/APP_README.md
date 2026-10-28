@@ -84,10 +84,10 @@ The RAG flow in `src/rag/__init__.py` works like this:
 
 1. Load every `*.html` file from `DESTINATIONS_PATH`.
 2. Parse them with `BSHTMLLoader`.
-3. Split content into chunks using `CHUNK_SIZE` and `CHUNK_OVERLAP`.
+3. Split content into chunks using `CHUNK_SIZE` and `CHUNK_OVERLAP`, then drop chunks that only repeat the page title (for example "Destination Boston"): they carry no content but are the nearest neighbours of any name.
 4. Create vectors in Weaviate using the Ollama embedding model named by `AI_EMBEDDING_MODEL`.
 5. For a user query, try exact lexical retrieval first and then vector retrieval.
-6. Build the final prompt from the retrieved text plus `RAG_PROMPT_PATH`.
+6. If the destination has no page in the knowledge base (names such as "Boston, MA" are matched to their page), answer "I don't have information about that destination" without calling the model. Otherwise build the final prompt from the retrieved text plus `RAG_PROMPT_PATH`.
 7. Send that prompt to the chat model named by `AI_MODEL`.
 
 If no useful context is found, the app returns a constrained fallback response instead of hallucinating details.
@@ -164,7 +164,7 @@ RAG behavior:
 - `CHUNK_OVERLAP`
 - `RETRIEVAL_K`
 - `FORCE_REINDEX`
-- `MIN_KB_OBJECTS`
+- `MIN_KB_OBJECTS` (default 200)
 
 Agentic behavior:
 
