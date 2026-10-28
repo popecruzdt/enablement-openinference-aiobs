@@ -25,6 +25,7 @@ from src.config import get_settings
 from src.feature_flags import get_embedding_override, set_embedding_override
 from src.telemetry.langchain_context import langchain_span_context
 from src.telemetry.prompts import prompt_template_context
+from src.telemetry.retrieval import RetrievedDocument, record_retrieval_documents
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ class RetrievalResult:
     contexts: List[str] = field(default_factory=list)
     drift_active: bool = False
     destination_found: bool = False
+    # The chunks the context was built from (what the model saw), for the RETRIEVER span.
+    documents: List[RetrievedDocument] = field(default_factory=list)
 
 
 class RAGPipeline:
@@ -144,21 +147,31 @@ class RAGPipeline:
         """
         return "\n\n".join(doc.page_content for doc in docs)
 
-    def _select_best_exact_match(self, destination: str, objects) -> Optional[str]:
-        """Join the chunks of the destination's own page, or None when it has no page."""
+    def _select_exact_match_objects(self, destination: str, objects) -> list:
+        """The chunks of the destination's own page (empty when it has no page)."""
         wanted_title = normalize_destination(destination)
 
         # Only chunks whose title (the page's file name) is the destination count: another
         # page that merely mentions the destination in its text must not answer for it.
-        texts = []
+        selected = []
         for obj in objects:
             props = obj.properties or {}
             title = (props.get("title") or "").strip().lower()
-            text = props.get("text") or ""
-            if title == wanted_title and text:
-                texts.append(text)
+            if title == wanted_title and props.get("text"):
+                selected.append(obj)
+        return selected
 
-        return "\n\n".join(texts) if texts else None
+    @staticmethod
+    def _to_document(obj, score: Optional[float]) -> RetrievedDocument:
+        props = obj.properties or {}
+        metadata = {k: props[k] for k in ("title", "source") if props.get(k)}
+        uuid = getattr(obj, "uuid", None)
+        return RetrievedDocument(
+            content=props.get("text", ""),
+            id=str(uuid) if uuid else None,
+            score=score,
+            metadata=metadata,
+        )
 
     def _set_weaviate_common_attributes(
         self,
@@ -392,6 +405,14 @@ class RAGPipeline:
             return self._retrieve_context(destination)
 
     def _retrieve_context(self, destination: str) -> RetrievalResult:
+        """Run the retrieval under one RETRIEVER span that lists the documents actually used."""
+        tracer = trace.get_tracer("ai-travel-advisor.weaviate")
+        with tracer.start_as_current_span("weaviate.retrieve", kind=SpanKind.INTERNAL) as span:
+            result = self._retrieve_context_queries(destination)
+            record_retrieval_documents(span, destination, result.documents)
+            return result
+
+    def _retrieve_context_queries(self, destination: str) -> RetrievalResult:
         if self.rag_chain is None:
             raise RuntimeError("RAG chain not initialized. Call initialize_rag_chain() first.")
 
@@ -426,7 +447,7 @@ class RAGPipeline:
                         exact_results = kb.query.bm25(
                             query=destination,
                             limit=self.settings.retrieval_k,
-                            return_properties=["text", "title"],
+                            return_properties=["text", "source", "title"],
                             return_metadata=wvc.query.MetadataQuery(score=True),
                         )
                         span.set_attribute("weaviate.result.count", len(exact_results.objects))
@@ -512,11 +533,13 @@ class RAGPipeline:
                     raise
 
             contexts = []
+            documents = []
             if not drift_active:
                 if destination_found_in_collection:
-                    best_text = self._select_best_exact_match(destination, exact_results.objects)
-                    if best_text:
-                        contexts.append(best_text)
+                    for obj in self._select_exact_match_objects(destination, exact_results.objects):
+                        contexts.append(obj.properties["text"])
+                        documents.append(self._to_document(obj, getattr(obj.metadata, "score", None)))
+                    if contexts:
                         logger.info("Exact destination lookup detected; using single best-matching document for prompt context")
                     else:
                         logger.warning("Exact destination lookup detected, but no best exact-match text found")
@@ -526,6 +549,10 @@ class RAGPipeline:
                         text = (obj.properties or {}).get("text", "")
                         if text:
                             contexts.append(text)
+                            distance = getattr(obj.metadata, "distance", None)
+                            # Weaviate returns a distance (lower is better); report a similarity so a
+                            # higher document.score means a better match (assumes cosine distance).
+                            documents.append(self._to_document(obj, None if distance is None else 1 - distance))
 
             if not contexts and not drift_active:
                 logger.warning(f"No KB documents retrieved for destination: {destination}")
@@ -534,6 +561,7 @@ class RAGPipeline:
                 contexts=contexts,
                 drift_active=drift_active,
                 destination_found=destination_found_in_collection,
+                documents=documents,
             )
         except Exception as e:
             logger.error(f"Error retrieving destination context: {e}")
