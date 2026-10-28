@@ -632,7 +632,6 @@ async def health_check():
     status_info = {
         "status": "healthy",
         "service": "AI Travel Advisor",
-        "version": "1.0.0",
         "ollama": {
             "endpoint": settings.ollama_endpoint,
             "model": settings.ai_model,
