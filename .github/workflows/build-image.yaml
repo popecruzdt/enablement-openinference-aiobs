@@ -13,7 +13,7 @@ on:
 env:
   IMAGE: ghcr.io/${{ github.repository }}/ai-travel-advisor
   # Keep in sync with the image tag in app/k8s/40-travel-advisor.yaml
-  VERSION: "1.7.0"
+  VERSION: "1.7.1"
 
 jobs:
   build:
