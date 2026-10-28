@@ -20,7 +20,8 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.config import AdditionalConfig, Timeout
 
-from src.agent.tools import normalize_destination
+from src.agent.graph import NO_INFORMATION_ANSWER
+from src.agent.tools import load_known_destinations, match_known_destination, normalize_destination
 from src.config import get_settings
 from src.feature_flags import get_embedding_override, set_embedding_override
 from src.telemetry.langchain_context import langchain_span_context
@@ -291,7 +292,15 @@ class RAGPipeline:
             chunk_overlap=self.settings.chunk_overlap
         )
         documents = text_splitter.split_documents(docs_list)
-        logger.info(f"Created {len(documents)} document chunks")
+        # BSHTMLLoader puts the page <title> in the text, and the splitter leaves it as a chunk of its
+        # own ("Destination Boston"), sometimes twice. Such chunks carry no content but are the nearest
+        # neighbours of any name, so they would crowd the real chunks out of vector search.
+        before = len(documents)
+        documents = [
+            doc for doc in documents
+            if doc.page_content.strip() != (doc.metadata.get("title") or "").strip()
+        ]
+        logger.info(f"Created {len(documents)} document chunks ({before - len(documents)} title-only chunks dropped)")
 
         # Index documents with Weaviate v4 client
         logger.info("Indexing documents in Weaviate...")
@@ -416,6 +425,10 @@ class RAGPipeline:
         if self.rag_chain is None:
             raise RuntimeError("RAG chain not initialized. Call initialize_rag_chain() first.")
 
+        # "Boston, MA" names the Boston page: match page titles on the known destination named in
+        # the text (as the agent does), not on the raw text.
+        page_name = match_known_destination(destination, load_known_destinations(self.settings.destinations_path)) or destination
+
         try:
             tracer = trace.get_tracer("ai-travel-advisor.weaviate")
             results = None
@@ -460,7 +473,7 @@ class RAGPipeline:
                             span.set_attribute("weaviate.result.score.max", round(max(bm25_scores), 6))
                             span.set_attribute("weaviate.result.score.min", round(min(bm25_scores), 6))
                             span.set_attribute("weaviate.result.score.avg", round(sum(bm25_scores) / len(bm25_scores), 6))
-                    wanted_title = normalize_destination(destination)
+                    wanted_title = normalize_destination(page_name)
                     destination_found_in_collection = any(
                         (obj.properties or {}).get("title", "").strip().lower() == wanted_title
                         for obj in exact_results.objects
@@ -536,7 +549,7 @@ class RAGPipeline:
             documents = []
             if not drift_active:
                 if destination_found_in_collection:
-                    for obj in self._select_exact_match_objects(destination, exact_results.objects):
+                    for obj in self._select_exact_match_objects(page_name, exact_results.objects):
                         contexts.append(obj.properties["text"])
                         documents.append(self._to_document(obj, getattr(obj.metadata, "score", None)))
                     if contexts:
@@ -586,9 +599,11 @@ class RAGPipeline:
             retrieval = self.retrieve_context(destination)
             contexts = retrieval.contexts
 
-            if not contexts and not retrieval.drift_active:
+            # A destination without a page always gets the same answer: the model never sees the
+            # unrelated chunks that vector search returns as a fallback.
+            if not retrieval.drift_active and (not retrieval.destination_found or not contexts):
                 logger.info("Response used RAG: false")
-                return "I don't have information about that destination"
+                return NO_INFORMATION_ANSWER
 
             context = "\n\n".join(contexts)  # empty string when drift_active
             logger.info(f"Context contains {len(context)} characters from {len(contexts)} documents")

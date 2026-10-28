@@ -220,3 +220,7 @@ docs/stylesheets/extra.css
 
 
 docs/javascripts/mermaid.min.js
+
+# Python bytecode
+__pycache__/
+*.pyc
