@@ -32,7 +32,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from src.agent.tools import match_known_destination
+from src.agent.tools import match_known_destination, normalize_destination
 from src.telemetry.prompts import prompt_template_context
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,19 @@ def _model_destination(messages: List[AnyMessage]) -> str:
     return ""
 
 
+def destination_from_request(model_destination: str, request: str) -> str:
+    """Keep the model's destination argument only if the user's request names it.
+
+    A 1B tool model sometimes invents a destination for an input it does not recognise
+    ("SF" became "Tokyo"). Otherwise the tools run on the request text as typed, so an
+    unknown name is reported as unknown instead of silently answered for another place.
+    """
+    wanted = normalize_destination(model_destination)
+    if wanted and f"-{wanted}-" in f"-{normalize_destination(request)}-":
+        return model_destination
+    return request
+
+
 def _format_tool_results(messages: List[AnyMessage]) -> str:
     """Collect tool outputs from the conversation for the respond prompt."""
     results = [
@@ -164,6 +177,10 @@ def build_agent_graph(
         messages = [SystemMessage(content=system_prompt), *state["messages"]]
         with prompt_template_context(system_prompt):
             response = agent_model.invoke(messages)
+        for tool_call in getattr(response, "tool_calls", None) or []:
+            args = tool_call.get("args") or {}
+            if args.get("destination"):
+                args["destination"] = destination_from_request(str(args["destination"]), state["request"])
         return {"messages": [response], "path": "tool_calling", "steps": state.get("steps", 0) + 1}
 
     def route_model(state: AgentState) -> str:
