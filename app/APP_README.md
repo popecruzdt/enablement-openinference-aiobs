@@ -102,10 +102,12 @@ Agentic mode runs a LangGraph `StateGraph` named `travel_agent` (`src/agent/grap
 
 The graph has two paths:
 
-1. Tool calling: when the model in `AI_MODEL` has the Ollama `tools` capability (for example `qwen2.5` and `llama3.2`), the `call_model` node lets the model choose tools at temperature 0, and the `tools` node runs them in a loop of at most `AGENT_MAX_STEPS` model turns.
+1. Tool calling: when the tool model has the Ollama `tools` capability (`AGENT_TOOL_MODEL`, or `AI_MODEL` when it is empty; for example `qwen2.5` and `llama3.2`) (for example `qwen2.5` and `llama3.2`), the `call_model` node lets the model choose tools at temperature 0, and the `tools` node runs them in a loop of at most `AGENT_MAX_STEPS` model turns.
 2. Fallback: when the model has no tool support (for example `gemma3:1b-it-qat`, `orca-mini:3b`) or returns no tool calls, the `plan_fallback` node calls all three tools in a fixed order through the same `tools` node.
 
-On both paths the `respond` node writes the final answer from the tool results using `AI_TEMPERATURE`. Tool support is detected once at startup with `ollama show`, so restart the app after changing `AI_MODEL`.
+On both paths the `respond` node writes the final answer from the tool results using `AI_MODEL` and `AI_TEMPERATURE`. Tool support is detected once at startup with `ollama show`, so restart the app after changing `AI_MODEL` or `AGENT_TOOL_MODEL`.
+
+Two models: the default chat model, `gemma3:1b-it-qat`, has no `tools` capability, so `AGENT_TOOL_MODEL` (default `llama3.2:1b-instruct-q4_K_M`) chooses the tools at temperature 0 and `AI_MODEL` writes the answer. Set `AGENT_TOOL_MODEL` to an empty value to use one model: with gemma3 the agent then takes the fallback path (fixed tool order, no model-driven choice), which is about 2.5 times faster in our test.
 
 ### Prompt control
 
@@ -144,7 +146,8 @@ Core server:
 Ollama:
 
 - `OLLAMA_ENDPOINT`
-- `AI_MODEL`
+- `AI_MODEL` (default `gemma3:1b-it-qat`; writes the answers)
+- `AGENT_TOOL_MODEL` (default `llama3.2:1b-instruct-q4_K_M`; chooses the agent's tools, needs the `tools` capability; empty means `AI_MODEL`)
 - `AI_EMBEDDING_MODEL`
 - `AI_TEMPERATURE`
 

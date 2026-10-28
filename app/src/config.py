@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # Ollama LLM Configuration
     ollama_endpoint: str = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
     ai_model: str = os.getenv("AI_MODEL", "orca-mini:3b")
+    # Model that chooses the agent's tools (must have the Ollama `tools` capability). Empty: AI_MODEL does it.
+    agent_tool_model: str = os.getenv("AGENT_TOOL_MODEL", "")
     ai_embedding_model: str = os.getenv("AI_EMBEDDING_MODEL", "nomic-embed-text")
     ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.7"))
 
@@ -83,6 +85,7 @@ def get_settings() -> Settings:
     logger.info(f"Debug: {settings.debug}")
     logger.info(f"Ollama endpoint: {settings.ollama_endpoint}")
     logger.info(f"Ollama model: {settings.ai_model}")
+    logger.info(f"Agent tool-selection model: {settings.agent_tool_model or settings.ai_model}")
     logger.info(f"Ollama temperature: {settings.ai_temperature}")
     logger.info(f"Weaviate: {settings.weaviate_scheme}://{settings.weaviate_endpoint}:{settings.weaviate_port}")
     

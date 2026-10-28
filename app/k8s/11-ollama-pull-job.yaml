@@ -23,6 +23,9 @@ spec:
             - name: AI_MODEL
               valueFrom:
                 configMapKeyRef: { name: travel-advisor-env, key: AI_MODEL }
+            - name: AGENT_TOOL_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AGENT_TOOL_MODEL, optional: true }
             - name: AI_EMBEDDING_MODEL
               valueFrom:
                 configMapKeyRef: { name: travel-advisor-env, key: AI_EMBEDDING_MODEL }
@@ -31,7 +34,8 @@ spec:
             - -c
             - |
               set -e
-              for model in "$AI_MODEL" "$AI_EMBEDDING_MODEL"; do
+              for model in "$AI_MODEL" "$AGENT_TOOL_MODEL" "$AI_EMBEDDING_MODEL"; do
+                [ -n "$model" ] || continue
                 echo "Pulling $model"
                 ollama pull "$model"
               done

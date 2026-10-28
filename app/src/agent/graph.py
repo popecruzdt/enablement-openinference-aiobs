@@ -143,13 +143,18 @@ def build_agent_graph(
     respond_prompt: str,
     supports_tools: bool,
     max_steps: int,
+    tool_model=None,
 ):
-    """Build and compile the travel agent graph."""
+    """Build and compile the travel agent graph.
+
+    `tool_model` (optional) chooses the tools in `call_model`; `chat_model` writes the final
+    answer in `respond`. Without it, `chat_model` does both.
+    """
     tool_names = [t.name for t in tools]
     # Tool selection runs at temperature 0 for more reliable tool calls on small models;
     # the respond node uses the configured AI_TEMPERATURE.
     agent_model = (
-        chat_model.model_copy(update={"temperature": 0}).bind_tools(tools) if supports_tools else None
+        (tool_model or chat_model).model_copy(update={"temperature": 0}).bind_tools(tools) if supports_tools else None
     )
 
     def route_start(state: AgentState) -> str:
