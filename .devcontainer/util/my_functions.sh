@@ -118,7 +118,8 @@ SUPPORTED_AI_MODELS="qwen2.5:0.5b-instruct-q4_K_M llama3.2:1b-instruct-q4_K_M ge
 
 # Shows or changes the chat model of the running AI Travel Advisor, without redeploying the stack.
 #   changeAiModel            show the current chat model and the supported ones
-#   changeAiModel <model>    switch the chat model, e.g. changeAiModel gemma3:1b-it-qat
+#   changeAiModel <model>    switch the model that writes the answers, e.g. changeAiModel gemma3:1b-it-qat
+# The model that chooses the agent's tools is separate: see changeToolModel.
 # It pulls the model into Ollama, updates AI_MODEL in the travel-advisor-env ConfigMap and restarts only travel-advisor.
 # The change lives in the cluster: deployTravelAdvisor re-applies the default from app/k8s/05-travel-advisor-config.yaml.
 changeAiModel() {
@@ -152,6 +153,86 @@ changeAiModel() {
   kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m \
     || { printError "travel-advisor did not become ready with $model: check 'kubectl -n $TRAVEL_ADVISOR_NS logs deploy/travel-advisor'"; return 1; }
   printInfo "The chat model is now $model"
+}
+
+# Shows or changes the model that chooses the agent's tools (AGENT_TOOL_MODEL); AI_MODEL still writes the answers.
+#   changeToolModel            show the current tool model and the supported ones
+#   changeToolModel <model>    use <model> to choose the tools, e.g. changeToolModel llama3.2:1b-instruct-q4_K_M
+#   changeToolModel none       no separate tool model: AI_MODEL chooses the tools (a model without the Ollama `tools`
+#                              capability, such as gemma3, then runs the three tools in a fixed order instead)
+# The model must be on the supported list and have the `tools` capability. It is pulled into Ollama, AGENT_TOOL_MODEL is
+# updated in the travel-advisor-env ConfigMap and only travel-advisor is restarted. deployTravelAdvisor re-applies the default.
+changeToolModel() {
+  local model="${1:-}" current m supported=false
+  if ! kubectl -n "$TRAVEL_ADVISOR_NS" get configmap travel-advisor-env >/dev/null 2>&1; then
+    printError "The travel-advisor-env ConfigMap was not found: deploy the stack first (deployTravelAdvisor)"; return 1
+  fi
+  current=$(kubectl -n "$TRAVEL_ADVISOR_NS" get configmap travel-advisor-env -o jsonpath='{.data.AGENT_TOOL_MODEL}' 2>/dev/null)
+
+  if [ -z "$model" ]; then
+    printInfo "Current tool model (AGENT_TOOL_MODEL): ${current:-none (AI_MODEL chooses the tools)}"
+    printInfo "Supported models: $SUPPORTED_AI_MODELS (the tool model also needs the 'tools' capability)"
+    printInfo "Change it with: changeToolModel <model>, or changeToolModel none"
+    return 0
+  fi
+
+  if [ "$model" = "none" ]; then
+    printInfoSection "Removing the separate tool model"
+    kubectl -n "$TRAVEL_ADVISOR_NS" patch configmap travel-advisor-env --type merge -p '{"data":{"AGENT_TOOL_MODEL":""}}' || return 1
+  else
+    for m in $SUPPORTED_AI_MODELS; do [ "$m" = "$model" ] && supported=true; done
+    if [ "$supported" != "true" ]; then
+      printError "'$model' is not a supported model. Supported models: $SUPPORTED_AI_MODELS"
+      return 1
+    fi
+    printInfoSection "Changing the tool model to $model"
+    # Pull first: if the pull fails, nothing has changed yet.
+    kubectl -n "$TRAVEL_ADVISOR_NS" exec deploy/ollama -- ollama pull "$model" \
+      || { printError "Could not pull $model into Ollama: nothing was changed"; return 1; }
+    if ! kubectl -n "$TRAVEL_ADVISOR_NS" exec deploy/ollama -- ollama show "$model" | sed -n '/Capabilities/,/^$/p' | grep -qw tools; then
+      printError "'$model' does not have the 'tools' capability, so it cannot choose tools: nothing was changed"
+      printInfo "Use a model with tool support (for example llama3.2:1b-instruct-q4_K_M), or 'changeToolModel none'."
+      return 1
+    fi
+    kubectl -n "$TRAVEL_ADVISOR_NS" patch configmap travel-advisor-env --type merge -p "{\"data\":{\"AGENT_TOOL_MODEL\":\"$model\"}}" || return 1
+  fi
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout restart deploy/travel-advisor || return 1
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m \
+    || { printError "travel-advisor did not become ready: check 'kubectl -n $TRAVEL_ADVISOR_NS logs deploy/travel-advisor'"; return 1; }
+  printInfo "The tool model is now ${model}"
+}
+
+# Shows or changes the temperature the model uses to write answers (AI_TEMPERATURE), without redeploying the stack.
+#   changeAiTemperature            show the current temperature
+#   changeAiTemperature <value>    set it, from 0.0 to 2.0, e.g. changeAiTemperature 0.2
+# Only the answer step uses it: the agent chooses its tools at temperature 0 whatever this is set to.
+# It updates AI_TEMPERATURE in the travel-advisor-env ConfigMap and restarts only travel-advisor.
+# The change lives in the cluster: deployTravelAdvisor re-applies the default from app/k8s/05-travel-advisor-config.yaml.
+changeAiTemperature() {
+  local value="${1:-}" current
+  current=$(kubectl -n "$TRAVEL_ADVISOR_NS" get configmap travel-advisor-env -o jsonpath='{.data.AI_TEMPERATURE}' 2>/dev/null)
+  if [ -z "$current" ]; then
+    printError "The travel-advisor-env ConfigMap was not found: deploy the stack first (deployTravelAdvisor)"; return 1
+  fi
+
+  if [ -z "$value" ]; then
+    printInfo "Current temperature (AI_TEMPERATURE): $current"
+    printInfo "Change it with: changeAiTemperature <0.0 to 2.0>"
+    return 0
+  fi
+
+  if ! echo "$value" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ! awk -v v="$value" 'BEGIN { exit !(v >= 0 && v <= 2) }'; then
+    printError "'$value' is not a valid temperature: use a number from 0.0 to 2.0"
+    return 1
+  fi
+
+  printInfoSection "Changing the temperature to $value"
+  kubectl -n "$TRAVEL_ADVISOR_NS" patch configmap travel-advisor-env --type merge -p "{\"data\":{\"AI_TEMPERATURE\":\"$value\"}}" || return 1
+  # The app reads its settings at startup, so only travel-advisor is restarted (Ollama and Weaviate keep running).
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout restart deploy/travel-advisor || return 1
+  kubectl -n "$TRAVEL_ADVISOR_NS" rollout status deploy/travel-advisor --timeout=15m \
+    || { printError "travel-advisor did not become ready: check 'kubectl -n $TRAVEL_ADVISOR_NS logs deploy/travel-advisor'"; return 1; }
+  printInfo "The temperature is now $value"
 }
 
 # Applies edited destination pages (app/destinations/*.html) to the running AI Travel Advisor, without a new image.
