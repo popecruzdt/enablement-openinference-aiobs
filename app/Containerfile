@@ -1,5 +1,5 @@
 # AI Travel Advisor - Containerfile
-# Build: docker build -f Containerfile -t ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:<version> .
+# Build: docker build -f Containerfile -t ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:<tag> .
 # Runtime configuration comes from environment variables (Kubernetes ConfigMap), not a baked .env.
 
 FROM python:3.13-slim
