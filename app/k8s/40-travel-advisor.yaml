@@ -23,6 +23,9 @@ spec:
             - name: AI_MODEL
               valueFrom:
                 configMapKeyRef: { name: travel-advisor-env, key: AI_MODEL }
+            - name: AGENT_TOOL_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AGENT_TOOL_MODEL, optional: true }
             - name: AI_EMBEDDING_MODEL
               valueFrom:
                 configMapKeyRef: { name: travel-advisor-env, key: AI_EMBEDDING_MODEL }
@@ -32,12 +35,13 @@ spec:
             - |
               until curl -sf http://weaviate:8080/v1/.well-known/ready; do echo "waiting for weaviate"; sleep 5; done
               until curl -sf http://ollama:11434/api/tags | grep -qF "$AI_MODEL" \
+                 && { [ -z "$AGENT_TOOL_MODEL" ] || curl -sf http://ollama:11434/api/tags | grep -qF "$AGENT_TOOL_MODEL"; } \
                  && curl -sf http://ollama:11434/api/tags | grep -qF "$AI_EMBEDDING_MODEL"; do
                 echo "waiting for ollama models"; sleep 5
               done
       containers:
         - name: travel-advisor
-          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.6.0
+          image: ghcr.io/popecruzdt/enablement-openinference-aiobs/ai-travel-advisor:1.7.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

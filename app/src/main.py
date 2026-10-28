@@ -474,6 +474,7 @@ class AppState:
     rag_pipeline = None
     ollama_client = None
     direct_chat_model = None
+    tool_chat_model = None
     agent_graph = None
     settings = None
 
@@ -530,6 +531,13 @@ async def initialize_app():
             base_url=settings.ollama_endpoint,
             temperature=settings.ai_temperature,
         )
+        # Separate model for the agent's tool selection, when it differs from the chat model.
+        if settings.agent_tool_model and settings.agent_tool_model != settings.ai_model:
+            AppState.tool_chat_model = ChatOllama(
+                model=settings.agent_tool_model,
+                base_url=settings.ollama_endpoint,
+                temperature=0,
+            )
     except Exception as e:
         logger.warning(f"Could not connect to Ollama: {e}")
         logger.info("Note: Make sure Ollama is running and accessible")
@@ -557,7 +565,8 @@ def initialize_agent_graph(settings) -> None:
     known_destinations = load_known_destinations(settings.destinations_path)
     tools = build_tools(AppState.rag_pipeline, known_destinations)
     system_prompt, respond_prompt = load_agentic_prompts(settings.agentic_prompt_path)
-    supports_tools = model_supports_tools(AppState.ollama_client, settings.ai_model)
+    tool_model_name = settings.agent_tool_model or settings.ai_model
+    supports_tools = model_supports_tools(AppState.ollama_client, tool_model_name)
 
     AppState.agent_graph = build_agent_graph(
         chat_model=AppState.direct_chat_model,
@@ -567,9 +576,13 @@ def initialize_agent_graph(settings) -> None:
         respond_prompt=respond_prompt,
         supports_tools=supports_tools,
         max_steps=settings.agent_max_steps,
+        tool_model=AppState.tool_chat_model,
     )
     path = "tool calling" if supports_tools else "fallback tool plan"
-    logger.info(f"Agentic workflow initialized with {len(tools)} tools ({path})")
+    logger.info(
+        f"Agentic workflow initialized with {len(tools)} tools ({path}; "
+        f"tools chosen by {tool_model_name}, answer written by {settings.ai_model})"
+    )
 
 
 async def shutdown_app():
@@ -642,6 +655,7 @@ async def status():
         "status": "operational",
         "configuration": {
             "ollama_model": settings.ai_model,
+            "agent_tool_model": settings.agent_tool_model or settings.ai_model,
             "ollama_temperature": settings.ai_temperature,
             "embedding_model": settings.ai_embedding_model,
             "chunk_size": settings.chunk_size,
