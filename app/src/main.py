@@ -232,7 +232,7 @@ class _OpenInferenceKindSpanProcessor(SpanProcessor):
     are left alone.
     """
 
-    _RETRIEVER_MARKERS = (".collections.query.", ".gql.query.get", ".gql.get")
+    _RETRIEVER_MARKERS = (".collections.query.", ".gql.query.get", ".gql.get", "weaviate.retrieve")
 
     def on_start(self, span, parent_context=None):
         try:
