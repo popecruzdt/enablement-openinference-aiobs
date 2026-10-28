@@ -1,6 +1,10 @@
 name: Build AI Travel Advisor image
 
-# Publishes the app image that app/k8s/40-travel-advisor.yaml pulls.
+# Publishes the app image that app/k8s/40-travel-advisor.yaml pulls, on every push to main:
+#   :latest        the current state of main (what the manifest pulls)
+#   :<commit sha>  the same image, for traceability
+# For a fixed version (for example 2.0.0) built from a commit you choose, run the
+# "Build AI Travel Advisor image (manual version)" workflow (build-image-version.yaml).
 # After the first push, set the GHCR package to public so learner environments can pull it anonymously.
 on:
   push:
@@ -12,8 +16,6 @@ on:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}/ai-travel-advisor
-  # Keep in sync with the image tag in app/k8s/40-travel-advisor.yaml
-  VERSION: "1.8.1"
 
 jobs:
   build:
@@ -39,5 +41,5 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}

@@ -267,6 +267,12 @@ The `Containerfile` builds a self-contained Python 3.13 image that:
 
 Because the image bakes in `.env.example`, compose environment variables and bind mounts become the main override layers when running locally with Podman Compose.
 
+### Published image tags
+
+- Every push to `main` that touches `app/` publishes `ghcr.io/<owner>/<repo>/ai-travel-advisor:latest` (and `:<commit sha>`) through `.github/workflows/build-image.yaml`. The Kubernetes manifest pulls `:latest` with `imagePullPolicy: Always`.
+- For a fixed version, run the **Build AI Travel Advisor image (manual version)** workflow (`.github/workflows/build-image-version.yaml`, Actions tab, "Run workflow"). Enter the tag (for example `2.0.0`) and the commit to build (SHA, branch or tag). It publishes `:<version>` and `:<full sha>`, never `:latest`, and refuses to replace an existing version unless you tick `overwrite`. To use it, set that tag in `app/k8s/40-travel-advisor.yaml` (and `imagePullPolicy: IfNotPresent` if you do not want a pull on every start).
+- Testing a local build on a cluster: build under a tag that is not `latest`, import it into the cluster, and point the deployment at it (`kubectl set image deploy/travel-advisor travel-advisor=<image>:<tag>`); with `Always`, a locally imported `:latest` would be replaced by the registry image.
+
 ## Common Operations
 
 Query the app directly:
