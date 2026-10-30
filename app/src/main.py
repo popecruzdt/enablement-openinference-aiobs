@@ -530,6 +530,7 @@ async def initialize_app():
             model=settings.ai_model,
             base_url=settings.ollama_endpoint,
             temperature=settings.ai_temperature,
+            num_predict=settings.ai_num_predict or None,
         )
         # Separate model for the agent's tool selection, when it differs from the chat model.
         if settings.agent_tool_model and settings.agent_tool_model != settings.ai_model:

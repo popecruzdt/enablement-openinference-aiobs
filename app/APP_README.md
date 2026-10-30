@@ -150,6 +150,7 @@ Ollama:
 - `AGENT_TOOL_MODEL` (default `llama3.2:1b-instruct-q4_K_M`; chooses the agent's tools, needs the `tools` capability; empty means `AI_MODEL`)
 - `AI_EMBEDDING_MODEL`
 - `AI_TEMPERATURE`
+- `AI_NUM_PREDICT` (default `0`, no cap; the manifest sets `160`: the most tokens the answer model may write, so a runaway answer cannot take 40 seconds)
 
 Weaviate:
 

@@ -15,6 +15,8 @@ data:
   AGENT_TOOL_MODEL: "llama3.2:1b-instruct-q4_K_M"
   AI_EMBEDDING_MODEL: "nomic-embed-text"
   AI_TEMPERATURE: "0.7"
+  # Cap on the answer model's output, in tokens (about 110 tokens for the 80-word limit). 0 means no cap.
+  AI_NUM_PREDICT: "160"
   WEAVIATE_ENDPOINT: "weaviate"
   WEAVIATE_PORT: "8080"
   CHUNK_SIZE: "500"
