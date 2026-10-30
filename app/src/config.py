@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     agent_tool_model: str = os.getenv("AGENT_TOOL_MODEL", "")
     ai_embedding_model: str = os.getenv("AI_EMBEDDING_MODEL", "nomic-embed-text")
     ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.7"))
+    # Maximum tokens the answer model may generate (Ollama num_predict). 0 means no limit. A small model can
+    # occasionally ignore the word limit and paste the whole page; the cap bounds the response time.
+    ai_num_predict: int = int(os.getenv("AI_NUM_PREDICT", "0"))
 
     # Weaviate Vector Database Configuration
     weaviate_endpoint: str = os.getenv("WEAVIATE_ENDPOINT", "localhost")

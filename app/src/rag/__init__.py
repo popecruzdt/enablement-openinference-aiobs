@@ -86,7 +86,8 @@ class RAGPipeline:
         self.llm = ChatOllama(
             model=self.settings.ai_model,
             base_url=self.settings.ollama_endpoint,
-            temperature=self.settings.ai_temperature
+            temperature=self.settings.ai_temperature,
+            num_predict=self.settings.ai_num_predict or None,
         )
         self.weaviate_client: Optional[weaviate.Client] = None
         self.rag_chain = None
