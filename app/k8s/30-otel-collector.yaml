@@ -1,0 +1,169 @@
+# OTLP-only mode: the collector exports app telemetry to Dynatrace (no OneAgent).
+# DT_OTLP_ENDPOINT / DT_OTLP_TOKEN come from the `dynatrace` Secret created by deployTravelAdvisor.
+# Traces go to Dynatrace (traces/dynatrace, with gen_ai_normalizer) and to Arize AX (traces/arize, otlp_grpc/arize, gRPC). ARIZE_OTLP_ENDPOINT / ARIZE_SPACE_ID / ARIZE_API_KEY
+# come from the `arize` Secret created by deployTravelAdvisor; without credentials it holds placeholders and
+# the Arize export does not work. The app sets openinference.project.name, which names the Arize AX project.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: ai-travel-advisor
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: weaviate
+              scrape_interval: 15s
+              static_configs:
+                - targets: ["weaviate:2112"]
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      cumulative_to_delta: {}
+      # Maps OpenInference attributes to the OpenTelemetry gen_ai.* conventions so Dynatrace AI Observability
+      # understands the LLM, agent and tool spans. Applied only on the Dynatrace pipeline: the original
+      # OpenInference attributes are kept (no remove_originals) but Arize does not need the extra ones.
+      gen_ai_normalizer:
+        sources:
+          - name: openinference
+      # Runs before the normalizer. LangGraph puts the agent name in the JSON `metadata` attribute
+      # ({"agent_name": "..."}); the normalizer only maps `agent.name` to gen_ai.agent.name, and
+      # Dynatrace AI Observability identifies agents by gen_ai.agent.name.
+      transform/agent_name:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - set(span.attributes["agent.name"], ParseJSON(span.attributes["metadata"])["agent_name"]) where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["agent.name"] == nil and IsString(span.attributes["metadata"])
+      # Runs after the normalizer. The normalizer maps both AGENT and CHAIN to invoke_agent, which would
+      # label every LangGraph node and workflow span as an agent invocation: keep it for AGENT spans only.
+      # The agent span has no output messages (OpenInference only emits them on LLM spans): rebuild them from the
+      # final `answer` in the LangGraph state JSON of `output.value`. The answer is JSON-escaped by wrapping it in
+      # a one-element list with String() and stripping the brackets (a map inside a list literal loses its
+      # content in OTTL). Token counts stay off the agent span so tokens already counted on the LLM spans are
+      # not counted twice.
+      # The agent span has no provider; Dynatrace ties a GENAI_AGENT entity to the framework it runs under.
+      # OpenInference has no response model, so reuse the request model on LLM spans.
+      transform/gen_ai_cleanup:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - delete_key(span.attributes, "gen_ai.operation.name") where span.attributes["openinference.span.kind"] == "CHAIN" and span.attributes["gen_ai.operation.name"] == "invoke_agent"
+              - >-
+                set(span.attributes["tmp.answer"], String([ParseJSON(span.attributes["output.value"])["answer"]])) where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["gen_ai.output.messages"] == nil and IsString(span.attributes["output.value"])
+              - >-
+                set(span.attributes["gen_ai.output.messages"], Concat(["[{\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"content\":", Substring(span.attributes["tmp.answer"], 1, Len(span.attributes["tmp.answer"]) - 2), "}],\"finish_reason\":\"\"}]"], "")) where span.attributes["tmp.answer"] != nil
+              - delete_key(span.attributes, "tmp.answer")
+              - set(span.attributes["gen_ai.provider.name"], "langchain") where span.attributes["openinference.span.kind"] == "AGENT" and span.attributes["gen_ai.provider.name"] == nil
+              - set(span.attributes["gen_ai.response.model"], span.attributes["gen_ai.request.model"]) where span.attributes["openinference.span.kind"] == "LLM" and span.attributes["gen_ai.request.model"] != nil and span.attributes["gen_ai.response.model"] == nil
+      resource/training:
+        attributes:
+          - key: service.namespace
+            value: openinference-aiobs
+            action: upsert
+    exporters:
+      otlp_http/dynatrace:
+        endpoint: ${env:DT_OTLP_ENDPOINT}
+        headers:
+          Authorization: "Api-Token ${env:DT_OTLP_TOKEN}"
+      otlp_grpc/arize:
+        endpoint: ${env:ARIZE_OTLP_ENDPOINT}
+        headers:
+          arize-space-id: ${env:ARIZE_SPACE_ID}
+          arize-api-key: ${env:ARIZE_API_KEY}
+        timeout: 20s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 10s
+    service:
+      pipelines:
+        traces/dynatrace:
+          receivers: [otlp]
+          processors: [resource/training, transform/agent_name, gen_ai_normalizer, transform/gen_ai_cleanup, batch]
+          exporters: [otlp_http/dynatrace]
+        traces/arize:
+          receivers: [otlp]
+          processors: [resource/training, batch]
+          exporters: [otlp_grpc/arize]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [resource/training, cumulative_to_delta, batch]
+          exporters: [otlp_http/dynatrace]
+        logs:
+          receivers: [otlp]
+          processors: [resource/training, batch]
+          exporters: [otlp_http/dynatrace]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: ai-travel-advisor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: ghcr.io/dynatrace/dynatrace-otel-collector/dynatrace-otel-collector:0.58.0
+          args: ["--config=/etc/otel/config.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+          env:
+            - name: DT_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: dynatrace, key: endpoint }
+            - name: DT_OTLP_TOKEN
+              valueFrom:
+                secretKeyRef: { name: dynatrace, key: token }
+            - name: ARIZE_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: arize, key: endpoint }
+            - name: ARIZE_SPACE_ID
+              valueFrom:
+                secretKeyRef: { name: arize, key: space-id }
+            - name: ARIZE_API_KEY
+              valueFrom:
+                secretKeyRef: { name: arize, key: api-key }
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: ai-travel-advisor
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: 4317 }
+    - { name: otlp-http, port: 4318, targetPort: 4318 }

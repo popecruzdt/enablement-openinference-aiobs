@@ -1,0 +1,28 @@
+# Runtime settings for travel-advisor. This is the single place that names the Ollama models:
+# the pull Job (11) and the wait-for-backends init container (40) read AI_MODEL / AGENT_TOOL_MODEL / AI_EMBEDDING_MODEL from here.
+# Change the model of a running stack with `changeAiModel <model>` (see .devcontainer/util/my_functions.sh).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: travel-advisor-env
+  namespace: ai-travel-advisor
+data:
+  HOST: "0.0.0.0"
+  PORT: "8080"
+  OLLAMA_ENDPOINT: "http://ollama:11434"
+  AI_MODEL: "gemma3:1b-it-qat"
+  # Chooses the agent's tools. It needs the Ollama `tools` capability, which AI_MODEL (gemma3) does not have.
+  AGENT_TOOL_MODEL: "llama3.2:1b-instruct-q4_K_M"
+  AI_EMBEDDING_MODEL: "nomic-embed-text"
+  AI_TEMPERATURE: "0.7"
+  # Cap on the answer model's output, in tokens (about 110 tokens for the 80-word limit). 0 means no cap.
+  AI_NUM_PREDICT: "160"
+  WEAVIATE_ENDPOINT: "weaviate"
+  WEAVIATE_PORT: "8080"
+  CHUNK_SIZE: "500"
+  CHUNK_OVERLAP: "0"
+  RETRIEVAL_K: "10"
+  MIN_KB_OBJECTS: "200"
+  OTEL_ENABLED: "true"
+  OTEL_SERVICE_NAME: "ai-travel-advisor"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"

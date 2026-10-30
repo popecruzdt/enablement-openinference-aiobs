@@ -21,10 +21,13 @@ installK9s
 #deployCloudNative
 #deployApplicationMonitoring
 
-# TODO(starter): deploy what your training needs, then delete this TODO line.
-# The starter's steps check the cluster and the TODO app, so keep deployTodoApp
-# or change step 1's checks with it. Step 1 checks ONLY what this script builds.
-deployTodoApp
+# Declares the variables this training reads (also used to generate .devcontainer/.env.example for local runs).
+# All optional: without Dynatrace or Arize credentials the stack still deploys, but the collector does not export.
+variablesNeeded DT_ENVIRONMENT:false DT_INGEST_TOKEN:false ARIZE_SPACE_ID:false ARIZE_API_KEY:false
+
+# AI Travel Advisor stack: nginx, travel-advisor (FastAPI), ollama, weaviate, otel-collector.
+# Defined in .devcontainer/util/my_functions.sh, manifests in app/k8s/.
+deployTravelAdvisor
 
 # The Astroshop keeping changes of demo.live needs certmanagerdocker
 #certmanagerInstall

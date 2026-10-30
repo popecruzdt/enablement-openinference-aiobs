@@ -1,0 +1,15 @@
+# Sized for every supported chat model (about 4.2 GB, see SUPPORTED_AI_MODELS in .devcontainer/util/my_functions.sh)
+# plus the embedding model (0.3 GB), so changeAiModel never runs out of space. Only the default models are pulled at deploy time.
+# The local-path storage class cannot resize an existing volume: a new size applies to new environments only.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: ai-travel-advisor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 8Gi

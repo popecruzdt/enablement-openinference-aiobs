@@ -1,0 +1,7 @@
+# User ids that may sign in to the AI Travel Advisor (one per line; # starts a comment).
+# There is no password: an id is accepted only if it is listed here, so other names never reach the traces.
+# Matching ignores upper/lower case. Allowed characters: letters, digits and . _ @ -
+# On Kubernetes this file is the travel-advisor-users ConfigMap: after editing it run reloadUsers.
+doug
+gabe
+tpc

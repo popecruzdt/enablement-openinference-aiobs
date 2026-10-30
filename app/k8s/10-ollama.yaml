@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ai-travel-advisor
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: docker.io/ollama/ollama:0.18.2
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            - name: OLLAMA_KEEP_ALIVE
+              value: "10m"
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "HOME=/root ollama list"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-data
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ai-travel-advisor
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434

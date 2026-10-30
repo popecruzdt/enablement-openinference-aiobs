@@ -1,0 +1,33 @@
+# AI Travel Advisor - Containerfile
+# Build: docker build -f Containerfile -t ghcr.io/dynatrace-wwse/enablement-openinference-aiobs/ai-travel-advisor:<tag> .
+# Runtime configuration comes from environment variables (Kubernetes ConfigMap), not a baked .env.
+
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system deps required by python packages and runtime health checks.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+COPY public/ ./public/
+COPY prompts/ ./prompts/
+# Destination pages and the sign-in user list are not part of the image: mount them at /app/destinations and /app/users (ConfigMaps on Kubernetes, bind mounts in compose).
+RUN mkdir -p /app/destinations /app/users
+
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+EXPOSE 8080
+
+CMD ["python", "-m", "src.main"]

@@ -1,0 +1,105 @@
+# The `travel-advisor-env` ConfigMap is in 05-travel-advisor-config.yaml (applied first: the Ollama pull Job reads the model names from it).
+# The `travel-advisor-prompts` ConfigMap is created from app/prompts/ by deployTravelAdvisor.
+# Keep replicas at 1: the embedding-model override flag is per process.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-advisor
+  namespace: ai-travel-advisor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-advisor
+  template:
+    metadata:
+      labels:
+        app: travel-advisor
+    spec:
+      initContainers:
+        - name: wait-for-backends
+          image: docker.io/curlimages/curl:8.10.1
+          env:
+            - name: AI_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AI_MODEL }
+            - name: AGENT_TOOL_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AGENT_TOOL_MODEL, optional: true }
+            - name: AI_EMBEDDING_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AI_EMBEDDING_MODEL }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until curl -sf http://weaviate:8080/v1/.well-known/ready; do echo "waiting for weaviate"; sleep 5; done
+              until curl -sf http://ollama:11434/api/tags | grep -qF "$AI_MODEL" \
+                 && { [ -z "$AGENT_TOOL_MODEL" ] || curl -sf http://ollama:11434/api/tags | grep -qF "$AGENT_TOOL_MODEL"; } \
+                 && curl -sf http://ollama:11434/api/tags | grep -qF "$AI_EMBEDDING_MODEL"; do
+                echo "waiting for ollama models"; sleep 5
+              done
+      containers:
+        - name: travel-advisor
+          # :latest is the current main (build-image.yaml). To pin a release, build a version with build-image-version.yaml
+          # and set the tag here. Always: a cached :latest must not hide a newer build.
+          image: ghcr.io/dynatrace-wwse/enablement-openinference-aiobs/ai-travel-advisor:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: travel-advisor-env
+          startupProbe:
+            httpGet:
+              path: /api/v1/status
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+          volumeMounts:
+            - name: prompts
+              mountPath: /app/prompts
+            - name: destinations
+              mountPath: /app/destinations
+              readOnly: true
+            - name: users
+              mountPath: /app/users
+              readOnly: true
+      volumes:
+        - name: prompts
+          configMap:
+            name: travel-advisor-prompts
+        - name: destinations
+          configMap:
+            name: travel-advisor-destinations
+        - name: users
+          configMap:
+            name: travel-advisor-users
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: travel-advisor
+  namespace: ai-travel-advisor
+spec:
+  selector:
+    app: travel-advisor
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }

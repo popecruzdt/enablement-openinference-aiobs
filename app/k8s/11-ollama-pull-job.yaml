@@ -1,0 +1,41 @@
+# Pulls the chat and embedding models named in the travel-advisor-env ConfigMap (05) into the Ollama PVC.
+# Re-run with: kubectl -n ai-travel-advisor delete job ollama-pull --ignore-not-found && kubectl apply -f 11-ollama-pull-job.yaml
+# Only the default chat model and the embedding model are pulled here. To use another supported chat model on a running stack,
+# run `changeAiModel <model>` (it pulls the model and restarts travel-advisor).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull
+  namespace: ai-travel-advisor
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: docker.io/ollama/ollama:0.18.2
+          env:
+            - name: OLLAMA_HOST
+              value: "http://ollama:11434"
+            - name: HOME
+              value: /tmp
+            - name: AI_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AI_MODEL }
+            - name: AGENT_TOOL_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AGENT_TOOL_MODEL, optional: true }
+            - name: AI_EMBEDDING_MODEL
+              valueFrom:
+                configMapKeyRef: { name: travel-advisor-env, key: AI_EMBEDDING_MODEL }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              for model in "$AI_MODEL" "$AGENT_TOOL_MODEL" "$AI_EMBEDDING_MODEL"; do
+                [ -n "$model" ] || continue
+                echo "Pulling $model"
+                ollama pull "$model"
+              done

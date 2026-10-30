@@ -41,8 +41,18 @@
 	},
   // minimal CPU when running DT components and apps.
 	"hostRequirements": {
-		"cpus": 2
-	}
+		"cpus": 4,
+		"memory": "8gb"
+	},
+  // Recommended Codespaces secrets: optional, the stack deploys without them but the collector will not export to Arize AX.
+  "secrets": {
+    "ARIZE_SPACE_ID": {
+      "description": "Arize AX space ID (Settings > Space Settings). Sent by the OTel collector as the arize-space-id header."
+    },
+    "ARIZE_API_KEY": {
+      "description": "Arize AX API key. Sent by the OTel collector as the arize-api-key header."
+    }
+  }
   /*
   ,
   // Add recommended secrets 
