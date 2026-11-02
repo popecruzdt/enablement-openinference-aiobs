@@ -151,6 +151,40 @@ PROMPT_FILE=/tmp/respond-prompt.txt VARIANT=deployed \
 
 `experiments/prerelease_task.py` reaches Ollama through the k3d node (`docker exec`; namespace from `K8S_NAMESPACE`) and looks up the service address itself, because the cluster IP changes whenever the cluster is rebuilt. Run it on the devcontainer host.
 
+## Signal: letting it find issues unaided
+
+Arize "Signal" scans a project's recent traces on a schedule and writes issues (overview, trace evidence, suggested fix). The `ax` CLI has no Signal commands: use the project's Signal settings in the UI, or the GraphQL API (`https://app.arize.com/graphql`, header `x-api-key`; fields `signalStatus` and `signalIssues`, mutations `updateSignalConfig` and `triggerAutomationNow`).
+
+**What the pilot showed.** With no configuration, Signal found nothing on the pilot project, although a request there takes 22 to 43 s. Two things explain it:
+1. **It looks for change.** Signal reports latency when it gets worse. The pilot's latency is steady, and Signal's own text called it "a steady-state characteristic, not a regression".
+2. **It only reads the last 24 hours of traces.** A project with no recent traffic gives a run with nothing, or a single trace, to look at.
+
+**What to do.** Do not tell Signal what is wrong or how to find it: the workshop is about what it finds on its own. Give it the context a new teammate would need, which is what the app is and what its users expect.
+1. Set the project's additional context in its Signal settings (UI), or through the API:
+
+```bash
+python3 - <<'E'
+import tomllib, json, urllib.request
+key = tomllib.load(open('/home/ubuntu/.arize/profiles/default.toml', 'rb'))['auth']['api_key']   # the ax CLI's key
+def gql(q, v):
+    req = urllib.request.Request("https://app.arize.com/graphql", data=json.dumps({"query": q, "variables": v}).encode(),
+                                 headers={"x-api-key": key, "content-type": "application/json"})
+    return json.load(urllib.request.urlopen(req, timeout=60))
+PROJECT_ID = "<project id>"   # ax projects list --space $SPACE
+print(gql('mutation($i:UpdateSignalConfigInput!){updateSignalConfig(input:$i){signalStatus{state cadenceSeconds additionalContext}}}',
+          {"i": {"modelId": PROJECT_ID, "cadenceSeconds": 21600,
+                 "additionalContext": "This is a customer-facing travel advisor. Users expect an answer within about 10 seconds. "
+                                      "Treat slow responses, failed or declined requests and incorrect answers as issues, including ones that are steady rather than new."}}))
+E
+```
+
+   `cadenceSeconds` must be between 14400 (4 h) and 2592000 (30 d). The update requires it, so pass the current value. Keep the context to the user's expectations (a response-time target, what counts as a good answer). Naming a span, a model or a cause turns Signal into a check for something you already know.
+2. Send traffic first. Run a burst of requests (at least a dozen) shortly before a run, so the last 24 hours hold enough traces.
+3. Run it now instead of waiting for the schedule. Read `signalStatus.automationId` for the project, then call the mutation `triggerAutomationNow` with `{automationId}`. A run takes about a minute. It can be refused (cool-off, capacity, monthly issue cap), so check that `signalStatus.lastFiredUnix` changed.
+4. Read the result: `signalIssues(limit: 20) { issueKey title severity status totalMatchCount bodyMd traceIds }` on the project node, or the Signal tab in the UI.
+
+**Result in the pilot.** Without any context Signal found nothing. With only the user-expectation context above and a manual run (`triggerAutomationNow`, no extra prompt), it raised two issues within about a minute: "Travel advice request takes ~43s, well over the 10s target" (high) and "Response names the wrong company office and adds unsupported details" (medium). Naming a cause in a one-off prompt also worked, but it is too specific for the workshop. The latency finding depends on the 10-second target: without a stated expectation, steady latency is not treated as a problem.
+
 ## Caveats met while building this
 
 - Names of evaluators and experiments are unique within a space. `ax ... list` shows 15 by default: pass `--limit 100`.
@@ -160,4 +194,4 @@ PROMPT_FILE=/tmp/respond-prompt.txt VARIANT=deployed \
 - A task run stuck in `RUNNING` blocks `trigger-run` (HTTP 409); code-evaluation runs can take several minutes.
 - The first run of a continuous task may show `CANCELLED` with no results (empty first window). Backfill with `trigger-run`.
 - Sessions that start with `golden-exp-` come from experiments: leave them out of analysis (the task filters do not).
-- An Arize "Signal" run on this project found no issues in the pilot, even with ten identical failures in two minutes: do not rely on it for this scenario.
+- An Arize "Signal" run on this project found no issues in the pilot, even with ten identical failures in two minutes, and reported the steady latency only after it was told to: see "Signal: letting it find issues unaided".
