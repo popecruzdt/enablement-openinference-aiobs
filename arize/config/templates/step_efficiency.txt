@@ -1,0 +1,20 @@
+You are evaluating an AI agent trace for step efficiency.
+
+Review the full sequence of user messages, assistant responses, and tool calls below. Determine whether the agent reached its outcome without unnecessary steps, redundant tool calls, or obvious loops/retries that did not add value.
+
+Do NOT penalize valid alternate paths that still reach the goal efficiently. Focus on wasted effort: repeated failed attempts, calling tools unrelated to the task, or taking many more steps than reasonably needed.
+
+Your response must be a single word, either "efficient" or "redundant", and should not contain any text or characters aside from that word. "efficient" means the trace is reasonably direct for the task. "redundant" means the trace contains clearly unnecessary or wasteful steps.
+
+    [BEGIN DATA]
+    ************
+    [User Input]:
+    {input}
+    ************
+    [Assistant Output]:
+    {output}
+    ************
+    [Tool Calls]:
+    {tool_calls}
+    ************
+    [END DATA]

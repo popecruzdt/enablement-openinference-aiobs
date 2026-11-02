@@ -1,0 +1,11 @@
+case_id,input,expected_output,key_facts,category,source
+sf-lookup,San Francisco,"The Arize office, now part of Dynatrace, is at 260 California St, 4th Floor, San Francisco, CA 94111, in the Financial District.",260 California St,san-francisco,lookup
+sf-lowercase,san francisco,"The Arize office, now part of Dynatrace, is at 260 California St, 4th Floor, San Francisco, CA 94111, in the Financial District.",260 California St,san-francisco,variant
+sf-state,"San Francisco, CA","The Arize office, now part of Dynatrace, is at 260 California St, 4th Floor, San Francisco, CA 94111, in the Financial District.",260 California St,san-francisco,variant
+sf-typo,San Fransisco,"The Arize office, now part of Dynatrace, is at 260 California St, 4th Floor, San Francisco, CA 94111, in the Financial District.",260 California St,san-francisco,typo
+sf-abbrev,SF,I don't have information about that destination.,,variant-decline,variant
+nokb-narnia,Narnia,I don't have information about that destination.,,not-in-kb,nokb
+nokb-atlantis,Atlantis,I don't have information about that destination.,,not-in-kb,nokb
+reg-boston,Boston,"Dynatrace's global headquarters is at 280 Congress Street, 11th Floor, Boston, MA 02210.",280 Congress,regression,page:boston.html
+reg-detroit,Detroit,"The Dynatrace Great Lakes office is at 1000 Woodward Ave, Suite 1500, Detroit, MI 48226.",1000 Woodward,regression,page:detroit.html
+reg-linz,Linz,"The main Dynatrace office is at Am Fünfundzwanziger Turm 20, Linz, Upper Austria, 4020.",Am Fünfundzwanziger Turm 20,regression,page:linz.html

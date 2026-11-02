@@ -1,0 +1,94 @@
+{
+ "evaluators": [
+  {
+   "name": "task_completion",
+   "template_file": "templates/task_completion.txt",
+   "template_name": "task_completion",
+   "description": null,
+   "data_granularity": "span",
+   "direction": "MAXIMIZE",
+   "classification_choices": {
+    "failed": 0,
+    "completed": 1
+   },
+   "include_explanations": true,
+   "use_function_calling": true,
+   "commit_message": "Pre-built task_completion template, span scope"
+  },
+  {
+   "name": "tool_calling",
+   "template_file": "templates/tool_calling.txt",
+   "template_name": "tool_calling",
+   "description": null,
+   "data_granularity": "span",
+   "direction": "MAXIMIZE",
+   "classification_choices": {
+    "correct": 1,
+    "incorrect": 0
+   },
+   "include_explanations": true,
+   "use_function_calling": true,
+   "commit_message": "Pre-built tool_calling template, span scope"
+  },
+  {
+   "name": "step_efficiency",
+   "template_file": "templates/step_efficiency.txt",
+   "template_name": "step_efficiency",
+   "description": null,
+   "data_granularity": "trace",
+   "direction": "MAXIMIZE",
+   "classification_choices": {
+    "efficient": 1,
+    "redundant": 0
+   },
+   "include_explanations": true,
+   "use_function_calling": true,
+   "commit_message": "Pre-built step_efficiency template, trace scope"
+  },
+  {
+   "name": "rag_relevancy",
+   "template_file": "templates/rag_relevancy.txt",
+   "template_name": "rag_relevancy",
+   "description": null,
+   "data_granularity": "span",
+   "direction": "MAXIMIZE",
+   "classification_choices": {
+    "relevant": 1,
+    "unrelated": 0
+   },
+   "include_explanations": true,
+   "use_function_calling": true,
+   "commit_message": "Pre-built rag_relevancy template, span scope"
+  },
+  {
+   "name": "hallucination",
+   "template_file": "templates/hallucination.txt",
+   "template_name": "hallucination",
+   "description": null,
+   "data_granularity": "span",
+   "direction": "MINIMIZE",
+   "classification_choices": {
+    "factual": 0,
+    "hallucinated": 1
+   },
+   "include_explanations": true,
+   "use_function_calling": true,
+   "commit_message": "Pre-built hallucination template, span scope"
+  },
+  {
+   "name": "toxicity",
+   "template_file": "templates/toxicity.txt",
+   "template_name": "toxicity",
+   "description": null,
+   "data_granularity": "span",
+   "direction": "MINIMIZE",
+   "classification_choices": {
+    "toxic": 1,
+    "non-toxic": 0
+   },
+   "include_explanations": true,
+   "use_function_calling": true,
+   "commit_message": "Pre-built toxicity template, span scope"
+  }
+ ]
+}

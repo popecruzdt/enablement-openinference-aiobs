@@ -1,0 +1,66 @@
+{
+ "tasks": [
+  {
+   "name": "task_completion (agentic traces)",
+   "evaluator": "task_completion",
+   "sampling_rate": 1.0,
+   "query_filter": "name = 'agentic_advice_workflow.workflow'",
+   "column_mappings": {
+    "input": "attributes.input.value",
+    "output": "attributes.output.value"
+   }
+  },
+  {
+   "name": "tool_calling (agentic traces)",
+   "evaluator": "tool_calling",
+   "sampling_rate": 1.0,
+   "query_filter": "attributes.metadata.langgraph_node = 'call_model' and attributes.openinference.span.kind = 'LLM' and attributes.metadata.langgraph_step = '1'",
+   "column_mappings": {
+    "question": "attributes.input.value",
+    "tool_call": "attributes.llm.output_messages",
+    "tool_definitions": "attributes.llm.tools"
+   }
+  },
+  {
+   "name": "step_efficiency (agentic traces)",
+   "evaluator": "step_efficiency",
+   "sampling_rate": 1.0,
+   "query_filter": "name = 'agentic_advice_workflow.workflow'",
+   "column_mappings": {
+    "input": "attributes.input.value",
+    "output": "attributes.output.value",
+    "tool_calls": "attributes.llm.output_messages"
+   }
+  },
+  {
+   "name": "rag_relevancy (retriever spans)",
+   "evaluator": "rag_relevancy",
+   "sampling_rate": 1.0,
+   "query_filter": "attributes.openinference.span.kind = 'RETRIEVER'",
+   "column_mappings": {
+    "input": "attributes.input.value",
+    "reference": "attributes.retrieval.documents"
+   }
+  },
+  {
+   "name": "hallucination (gemma3 answer spans)",
+   "evaluator": "hallucination",
+   "sampling_rate": 1.0,
+   "query_filter": "attributes.metadata.agent_name = 'travel_agent' and attributes.metadata.langgraph_node = 'respond' and attributes.openinference.span.kind = 'LLM'",
+   "column_mappings": {
+    "input": "attributes.llm.prompt_template.variables.request",
+    "output": "attributes.llm.output_messages",
+    "context": "attributes.llm.prompt_template.variables.tool_results"
+   }
+  },
+  {
+   "name": "toxicity (gemma3 answer spans)",
+   "evaluator": "toxicity",
+   "sampling_rate": 0.2,
+   "query_filter": "attributes.metadata.agent_name = 'travel_agent' and attributes.metadata.langgraph_node = 'respond' and attributes.openinference.span.kind = 'LLM'",
+   "column_mappings": {
+    "input": "attributes.llm.output_messages"
+   }
+  }
+ ]
+}

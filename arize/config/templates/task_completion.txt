@@ -1,0 +1,20 @@
+You are evaluating an AI agent trace to determine whether the agent completed the user's task.
+
+Review the full sequence of user messages, assistant responses, and tool calls below. Judge the OUTCOME — whether the user's goal was achieved — not whether the agent followed one exact path. Valid alternate approaches should still count as completed.
+
+Consider:
+- Did the agent understand what the user asked for?
+- Did the tool calls and reasoning steps progress toward that goal?
+- Is the final response a complete answer, or does the request remain unfinished?
+
+Your response must be a single word, either "completed" or "failed", and should not contain any text or characters aside from that word. "completed" means the agent successfully accomplished the user's task. "failed" means the task was not accomplished or was only partially addressed without a usable result.
+
+    [BEGIN DATA]
+    ************
+    [User Input]:
+    {input}
+    ************
+    [Assistant Output]:
+    {output}
+    ************
+    [END DATA]

@@ -1,0 +1,49 @@
+{
+ "annotation_configs": [
+  {
+   "name": "human-answer_quality",
+   "type": "CATEGORICAL",
+   "values": [
+    "good",
+    "poor"
+   ]
+  },
+  {
+   "name": "human-hallucination",
+   "type": "CATEGORICAL",
+   "values": [
+    "factual",
+    "hallucinated"
+   ]
+  },
+  {
+   "name": "human-task_completion",
+   "type": "CATEGORICAL",
+   "values": [
+    "completed",
+    "failed"
+   ]
+  }
+ ],
+ "annotation_queues": [
+  {
+   "name": "sf-address-signoff",
+   "instructions": "Domain-expert sign-off for the San Francisco fix. For each record read the answer against the facts below (the span input also holds the retrieved page text). Questions: task_completion = completed if the answer gives the office street address (San Francisco: 260 California St), else failed. hallucination = factual if every detail is in the facts or the page text shown, hallucinated if anything is invented. Notes optional. Approved San Francisco facts: F1 260 California St, 4th Floor, San Francisco, CA 94111 is the Arize office (now part of Dynatrace). F3 Schroeder's is a historic, cavernous German beer hall with a high-energy, rowdy corporate crowd. F4 In the Financial District, POPOS (privately owned public open spaces) are free rooftop gardens and plazas inside and on top of office towers. F5 Schroeder's is at 240 Front Street, founded 1893 (Bavaria-inspired). F7 Embarcadero BART/Muni Metro and the California Street cable car serve the Financial District. F8 the office and Schroeder's are in the Financial District. Not allowed: distances between the office and Schroeder's or POPOS (e.g. near the office), transit times, opening hours, fall foliage or weather claims, invented restaurants or URLs.",
+   "annotation_configs": [
+    "human-hallucination",
+    "human-task_completion",
+    "notes"
+   ]
+  },
+  {
+   "name": "calibration (Boston + Detroit)",
+   "instructions": "For each record read the facts in the span input (the tool_results block) and the answer. Label three questions: task_completion (does the answer give a usable answer about the destination), hallucination (is every detail in the answer present in the facts shown), answer_quality (is it a good travel answer on its own). Notes are optional.",
+   "annotation_configs": [
+    "human-answer_quality",
+    "human-hallucination",
+    "human-task_completion",
+    "notes"
+   ]
+  }
+ ]
+}
